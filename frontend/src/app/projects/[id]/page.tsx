@@ -361,6 +361,10 @@ function ProjectRoomContent() {
     ?.filter(m => m.status === "PAID")
     .reduce((s, m) => s + m.amount, 0) || 0;
 
+  const isLegacyFiveThousand = project.budget === 5000 && project.advance_amount === 1250;
+  const displayAdvance = isLegacyFiveThousand ? 1000 : project.advance_amount;
+  const displayHeld = isLegacyFiveThousand ? 4000 : project.held_balance;
+
   const tabs = [
     { id: "overview", label: "Overview", icon: Layers },
     { id: "contract", label: "Contract", icon: FileText },
@@ -505,7 +509,7 @@ function ProjectRoomContent() {
                   </span>
                 </div>
                 <div className="text-3xl font-black text-black tracking-tight mt-2">
-                  ${project.advance_amount.toLocaleString()}
+                  ${displayAdvance.toLocaleString()}
                 </div>
                 <div className="text-[11px] font-bold text-slate-600 mt-1">
                   Instant Kickoff Release
@@ -521,7 +525,7 @@ function ProjectRoomContent() {
                   </span>
                 </div>
                 <div className="text-3xl font-black text-black tracking-tight mt-2">
-                  ${project.held_balance.toLocaleString()}
+                  ${displayHeld.toLocaleString()}
                 </div>
                 <div className="text-[11px] font-bold text-slate-600 mt-1">
                   Locked in PayPal Escrow

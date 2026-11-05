@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, hashPassword, verifyPassword } from "@/server/db";
+import { db, hashPassword, verifyPassword, ProjectEntity } from "@/server/db";
 import {
   analyzeDealGuardian,
   analyzeScopeChange,
@@ -40,6 +40,104 @@ export async function OPTIONS() {
   });
 }
 
+// Auto-reconcile project financials if brief contains explicit breakdown or legacy 25% default
+function reconcileProjectFinancials(proj: ProjectEntity): ProjectEntity {
+  if (!proj || !proj.budget) return proj;
+
+  const isLegacyFiveThousand = proj.budget === 5000 && proj.advance_amount === 1250;
+  const hasLegacyDefault =
+    isLegacyFiveThousand ||
+    (proj.advance_amount === Math.round(proj.budget * 0.25) &&
+      proj.description &&
+      /(?:20%|advance|milestone payment)/i.test(proj.description));
+
+  if (!hasLegacyDefault && !proj.description) return proj;
+
+  const parsed = parseBriefFinancials(proj.description || "", proj.budget);
+  if (parsed.advanceAmount !== proj.advance_amount || isLegacyFiveThousand) {
+    const updated = db.updateProject(proj.id, {
+      budget: parsed.budget,
+      advance_amount: parsed.advanceAmount,
+      held_balance: parsed.heldBalance,
+      milestones: parsed.milestones.map((m, idx) => ({
+        id: `m-${proj.id}-${idx + 1}`,
+        project_id: proj.id,
+        title: m.title.toLowerCase().startsWith("milestone") ? m.title : `Milestone ${idx + 1}: ${m.title}`,
+        description: m.description || `Deliverables for milestone ${idx + 1}.`,
+        amount: m.amount,
+        currency: proj.currency || "USD",
+        order_index: idx,
+        due_date: m.dueDate || `T+${(idx + 1) * 14} days`,
+        status: "PENDING",
+        created_at: new Date().toISOString(),
+        criteria: [
+          {
+            id: `crit-${proj.id}-${idx + 1}`,
+            milestone_id: `m-${proj.id}-${idx + 1}`,
+            title: idx === 0 ? "Health Check & Environment Setup" : "Deliverable Verification",
+            description: "Application responds with HTTP 200 and passes verification.",
+            verification_type: "HTTP_STATUS",
+            status: "PENDING",
+          },
+        ],
+      })),
+    });
+
+    if (updated) {
+      proj = updated;
+
+      if (proj.contracts && proj.contracts.length > 0) {
+        const latestC = proj.contracts[proj.contracts.length - 1];
+        const updatedMarkdown = latestC.content_markdown
+          .replace(/\$1,250/g, `$${parsed.advanceAmount.toLocaleString()}`)
+          .replace(/\$3,750/g, `$${parsed.heldBalance.toLocaleString()}`)
+          .replace(/25%/g, `${parsed.advancePercent}%`)
+          .replace(/75%/g, `${100 - parsed.advancePercent}%`);
+        db.updateContract(latestC.id, { content_markdown: updatedMarkdown });
+      }
+
+      const existingInvoices = db.getInvoices(proj.id);
+      const hasPaid = existingInvoices.some((i) => i.status === "RELEASED");
+      if (!hasPaid) {
+        db.deleteInvoicesForProject(proj.id);
+        db.createInvoice({
+          id: `inv-${proj.id}-0`,
+          project_id: proj.id,
+          milestone_id: null,
+          invoice_number: `INV-${proj.id.toUpperCase()}-001`,
+          order_index: 0,
+          amount: parsed.advanceAmount,
+          currency: proj.currency || "USD",
+          title: "Upfront Kickoff Advance Deposit",
+          status: "PENDING_DEPOSIT",
+          due_date: "Immediate",
+          created_at: new Date().toISOString(),
+          paid_at: null,
+        });
+
+        parsed.milestones.forEach((m, idx) => {
+          db.createInvoice({
+            id: `inv-${proj.id}-${idx + 1}`,
+            project_id: proj.id,
+            milestone_id: `m-${proj.id}-${idx + 1}`,
+            invoice_number: `INV-${proj.id.toUpperCase()}-00${idx + 2}`,
+            order_index: idx + 1,
+            amount: m.amount,
+            currency: proj.currency || "USD",
+            title: m.title,
+            status: "HELD_IN_ESCROW",
+            due_date: m.dueDate || `T+${(idx + 1) * 14} days`,
+            created_at: new Date().toISOString(),
+            paid_at: null,
+          });
+        });
+      }
+    }
+  }
+
+  return proj;
+}
+
 // ============================================================================
 // GET Request Handler
 // ============================================================================
@@ -78,14 +176,15 @@ export async function GET(
   if (path === "projects") {
     const role = url.searchParams.get("role") || undefined;
     const userId = url.searchParams.get("user_id") || undefined;
-    const projects = db.getProjects(role, userId);
+    const projects = db.getProjects(role, userId).map(reconcileProjectFinancials);
     return json(projects);
   }
 
   // 4. Single Project: /api/projects/[id]
   if (slug[0] === "projects" && slug.length === 2) {
-    const proj = db.getProjectById(slug[1]);
+    let proj = db.getProjectById(slug[1]);
     if (!proj) return badRequest("Project not found", 404);
+    proj = reconcileProjectFinancials(proj);
     return json(proj);
   }
 
@@ -172,7 +271,10 @@ export async function GET(
   if (slug[0] === "invitations" && slug.length === 2) {
     const inv = db.getInvitationByToken(slug[1]);
     if (!inv) return badRequest("Invitation token not found", 404);
-    const project = db.getProjectById(inv.project_id);
+    let project = db.getProjectById(inv.project_id);
+    if (project) {
+      project = reconcileProjectFinancials(project);
+    }
     const latest_contract = project?.contracts && project.contracts.length > 0
       ? project.contracts[project.contracts.length - 1]
       : db.getContractById(inv.project_id);
