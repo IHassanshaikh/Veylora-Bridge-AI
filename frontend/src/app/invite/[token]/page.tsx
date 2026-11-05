@@ -59,16 +59,22 @@ function InviteContent() {
       });
 
       // Accept latest contract if present
-      if (invitation.project?.latest_contract?.id && user?.id) {
+      const contractId =
+        invitation.project?.latest_contract?.id ||
+        (invitation.project?.contracts && invitation.project.contracts.length > 0
+          ? invitation.project.contracts[invitation.project.contracts.length - 1].id
+          : null);
+
+      if (contractId && user?.id) {
         try {
-          await api.acceptContract(invitation.project.latest_contract.id, user.id, invitation.role);
+          await api.acceptContract(contractId, user.id, invitation.role);
         } catch (e) {
           console.error("Contract acceptance sync:", e);
         }
       }
 
       // Route to project workspace
-      router.push(`/projects/${res.project_id}`);
+      router.push(`/projects/${res.project_id || res.project?.id || invitation.project_id}`);
     } catch (err: any) {
       setError(err.message || "Failed to accept invitation");
     } finally {
@@ -78,14 +84,29 @@ function InviteContent() {
 
   const handleRequestChanges = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!changeRequestMessage.trim() || !invitation?.project?.latest_contract?.id) return;
+    if (!changeRequestMessage.trim()) return;
+
+    const proj = invitation?.project;
+    const contractId =
+      proj?.latest_contract?.id ||
+      (proj?.contracts && proj.contracts.length > 0
+        ? proj.contracts[proj.contracts.length - 1].id
+        : null) ||
+      proj?.id ||
+      invitation?.project_id;
+
+    if (!contractId) {
+      alert("No active agreement found to place on hold.");
+      return;
+    }
+
     try {
       setSubmittingHold(true);
       await api.holdContract(
-        invitation.project.latest_contract.id,
-        { reason: changeRequestMessage },
+        contractId,
+        { reason: changeRequestMessage.trim() },
         user?.id,
-        invitation.role
+        invitation?.role || "client"
       );
       setIsHoldModalOpen(false);
       setChangeRequestMessage("");
@@ -130,8 +151,10 @@ function InviteContent() {
   }
 
   const proj = invitation.project;
-  const latestContract = proj?.latest_contract;
-  const isOnHold = latestContract?.is_on_hold || proj?.status === "AGREEMENT_ON_HOLD";
+  const latestContract =
+    proj?.latest_contract ||
+    (proj?.contracts && proj.contracts.length > 0 ? proj.contracts[proj.contracts.length - 1] : undefined);
+  const isOnHold = latestContract?.is_on_hold || latestContract?.status === "ON_HOLD" || proj?.status === "AGREEMENT_ON_HOLD";
 
   // If user is not logged in, prompt sign in or sign up with redirect
   if (!user && !authToken) {
