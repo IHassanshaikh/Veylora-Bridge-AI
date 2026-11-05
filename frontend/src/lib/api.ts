@@ -330,7 +330,18 @@ export const api = {
     }
   },
 
-  async createProject(data: { client_id: string; freelancer_id?: string; title: string; description: string; budget: number; category?: string }): Promise<Project> {
+  async createProject(data: {
+    client_id: string;
+    freelancer_id?: string;
+    title: string;
+    description: string;
+    budget: number;
+    category?: string;
+    advance_percent?: number;
+    advance_amount?: number;
+    held_balance?: number;
+    currency?: string;
+  }): Promise<Project> {
     const res = await fetch(`${API_BASE}/projects`, {
       method: "POST",
       headers: getAuthHeaders(),
@@ -341,7 +352,16 @@ export const api = {
   },
 
   // Contracts
-  async generateContract(projectId: string, data: { project_title: string; brief: string; budget: number; currency?: string; target_timeline_days?: number }): Promise<Contract> {
+  async generateContract(projectId: string, data: {
+    project_title: string;
+    brief: string;
+    budget: number;
+    currency?: string;
+    target_timeline_days?: number;
+    advance_percent?: number;
+    advance_amount?: number;
+    held_balance?: number;
+  }): Promise<Contract> {
     const res = await fetch(`${API_BASE}/contracts/generate/${projectId}`, {
       method: "POST",
       headers: getAuthHeaders(),
@@ -588,10 +608,11 @@ export const api = {
   },
 
   async updateContract(contractId: string, data: { content_markdown: string }, userId?: string, role?: string): Promise<Contract> {
-    const url = new URL(`${API_BASE}/contracts/${contractId}`);
-    if (userId) url.searchParams.append("user_id", userId);
-    if (role) url.searchParams.append("role", role);
-    const res = await fetch(url.toString(), {
+    const params = new URLSearchParams();
+    if (userId) params.append("user_id", userId);
+    if (role) params.append("role", role);
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    const res = await fetch(`${API_BASE}/contracts/${contractId}${qs}`, {
       method: "PUT",
       headers: getAuthHeaders(),
       body: JSON.stringify(data)
@@ -601,10 +622,11 @@ export const api = {
   },
 
   async addContractComment(contractId: string, data: { message: string; comment_type?: string }, userId?: string, role?: string): Promise<ContractComment> {
-    const url = new URL(`${API_BASE}/contracts/${contractId}/comments`);
-    if (userId) url.searchParams.append("user_id", userId);
-    if (role) url.searchParams.append("role", role);
-    const res = await fetch(url.toString(), {
+    const params = new URLSearchParams();
+    if (userId) params.append("user_id", userId);
+    if (role) params.append("role", role);
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    const res = await fetch(`${API_BASE}/contracts/${contractId}/comments${qs}`, {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify(data)
@@ -620,10 +642,11 @@ export const api = {
   },
 
   async holdContract(contractId: string, data: { reason: string }, userId?: string, role?: string): Promise<Contract> {
-    const url = new URL(`${API_BASE}/contracts/${contractId}/hold`);
-    if (userId) url.searchParams.append("user_id", userId);
-    if (role) url.searchParams.append("role", role);
-    const res = await fetch(url.toString(), {
+    const params = new URLSearchParams();
+    if (userId) params.append("user_id", userId);
+    if (role) params.append("role", role);
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    const res = await fetch(`${API_BASE}/contracts/${contractId}/hold${qs}`, {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify(data)
@@ -633,10 +656,11 @@ export const api = {
   },
 
   async resumeContract(contractId: string, userId?: string, role?: string): Promise<Contract> {
-    const url = new URL(`${API_BASE}/contracts/${contractId}/resume`);
-    if (userId) url.searchParams.append("user_id", userId);
-    if (role) url.searchParams.append("role", role);
-    const res = await fetch(url.toString(), {
+    const params = new URLSearchParams();
+    if (userId) params.append("user_id", userId);
+    if (role) params.append("role", role);
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    const res = await fetch(`${API_BASE}/contracts/${contractId}/resume${qs}`, {
       method: "POST",
       headers: getAuthHeaders()
     });

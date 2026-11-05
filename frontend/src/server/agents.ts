@@ -1,6 +1,6 @@
 // Veylora Bridge AI - Unified Serverless AI Agents & Verification Engine
 import crypto from "crypto";
-import { db, ProjectEntity, MilestoneEntity } from "./db";
+import { db, ProjectEntity, MilestoneEntity, AcceptanceCriterionEntity } from "./db";
 
 // 1. Trust Auditor (Cryptographic SHA-256 Block Hashing)
 export function recordAuditEvent(params: {
@@ -117,7 +117,10 @@ export function aiEditContract(contractId: string, instruction: string) {
     newBudget = parseInt(matchBudget[1].replace(/,/g, ""));
   }
 
-  const newAdvance = Math.round(newBudget * 0.25);
+  const advanceRatio = (project?.advance_amount && project?.budget)
+    ? (project.advance_amount / project.budget)
+    : 0.25;
+  const newAdvance = Math.round(newBudget * advanceRatio);
   const newHeld = newBudget - newAdvance;
 
   const revisedMarkdown = `${contract.content_markdown}
@@ -315,7 +318,155 @@ export async function runVerificationSuite(milestoneId: string) {
   return run;
 }
 
-// 8. Contract Architect AI (Deterministic Synthesis & Acceptance Criteria)
+// 8. Financial Brief Parser & Deterministic Contract Architect
+export interface ParsedFinancials {
+  budget: number;
+  advanceAmount: number;
+  advancePercent: number;
+  heldBalance: number;
+  milestones: Array<{
+    title: string;
+    description: string;
+    amount: number;
+    percent?: number;
+    dueDate?: string;
+  }>;
+}
+
+export function parseBriefFinancials(
+  brief: string,
+  fallbackBudget: number,
+  fallbackAdvancePercent?: number,
+  fallbackAdvanceAmount?: number
+): ParsedFinancials {
+  const text = brief || "";
+  let budget = fallbackBudget;
+
+  // 1. Look for explicit total budget in text: e.g. "$5,000 TOTAL PROJECT BUDGET" or "Total Budget: $5000"
+  const totalMatch =
+    text.match(/\$?([\d,]+(?:\.\d+)?)\s*(?:USD)?\s*(?:TOTAL\s+PROJECT\s+BUDGET|TOTAL\s+BUDGET|TOTAL\s+CONTRACT\s+VALUE)/i) ||
+    text.match(/(?:TOTAL\s+PROJECT\s+BUDGET|TOTAL\s+BUDGET|TOTAL\s+VALUE|BUDGET)\s*(?:is|:)?\s*\$?([\d,]+(?:\.\d+)?)/i);
+  if (totalMatch) {
+    const val = parseFloat(totalMatch[1].replace(/,/g, ""));
+    if (!isNaN(val) && val > 0) budget = val;
+  }
+
+  // 2. Look for Advance in text: e.g. "20% Advance\n$1,000" or "$1,000 Advance" or "Advance: 20%"
+  let advancePercent = fallbackAdvancePercent ?? (fallbackAdvanceAmount ? Math.round((fallbackAdvanceAmount / budget) * 100) : 25);
+  let advanceAmount = fallbackAdvanceAmount ?? Math.round((budget * advancePercent) / 100);
+
+  const advPctMatch =
+    text.match(/(\d+)%\s*(?:Advance|Kickoff|Deposit|Upfront)/i) ||
+    text.match(/(?:Advance|Kickoff|Deposit|Upfront)\s*(?:of|:)?\s*(\d+)%/i);
+  if (advPctMatch) {
+    advancePercent = parseFloat(advPctMatch[1]);
+  }
+
+  const advAmtMatch =
+    text.match(/(?:Advance|Kickoff|Deposit|Upfront)[\s\S]{0,35}?\$\s*([\d,]+(?:\.\d+)?)/i) ||
+    text.match(/\$\s*([\d,]+(?:\.\d+)?)[\s\S]{0,35}?(?:Advance|Kickoff|Deposit|Upfront|project confirmation)/i);
+  if (advAmtMatch) {
+    const val = parseFloat(advAmtMatch[1].replace(/,/g, ""));
+    if (!isNaN(val) && val > 0) {
+      advanceAmount = val;
+      advancePercent = Math.round((advanceAmount / budget) * 100);
+    }
+  } else if (advPctMatch) {
+    advanceAmount = Math.round((budget * advancePercent) / 100);
+  }
+
+  const heldBalance = Math.max(0, budget - advanceAmount);
+
+  // 3. Look for explicit milestone breakdowns in text
+  const rawMilestones: Array<{
+    title: string;
+    description: string;
+    amount: number;
+    percent?: number;
+    dueDate?: string;
+  }> = [];
+
+  const milestoneRegex = /(?:(\d+)%\s*)?(?:(Milestone\s*(?:Payment|\d+)?|Final\s*Payment|Phase\s*\d+|Stage\s*\d+))[\s\S]{0,40}?\$\s*([\d,]+(?:\.\d+)?)/gi;
+  let mMatch;
+  while ((mMatch = milestoneRegex.exec(text)) !== null) {
+    const pct = mMatch[1] ? parseFloat(mMatch[1]) : undefined;
+    const kind = mMatch[2] ? mMatch[2].trim() : "Milestone Payment";
+    const amt = parseFloat(mMatch[3].replace(/,/g, ""));
+
+    // Skip if it says advance or kickoff
+    if (/advance|kickoff|deposit|confirmation/i.test(mMatch[0])) continue;
+
+    if (amt > 0 && amt <= budget) {
+      const afterIndex = mMatch.index + mMatch[0].length;
+      const followingLines = text.slice(afterIndex, afterIndex + 150).split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+      const followingSnippet = followingLines[0] || "";
+      let dueDate: string | undefined = undefined;
+      let cleanDesc = "";
+
+      const daysMatch = followingSnippet.match(/(?:after|in|within|t\+)?\s*(\d+)\s*days/i);
+      if (daysMatch) {
+        dueDate = `T+${daysMatch[1]} days`;
+      }
+      if (followingSnippet && !followingSnippet.startsWith("$") && !followingSnippet.includes("%")) {
+        cleanDesc = followingSnippet;
+      }
+
+      rawMilestones.push({
+        title: kind.replace(/\b\w/g, (c) => c.toUpperCase()),
+        description: cleanDesc,
+        amount: amt,
+        percent: pct,
+        dueDate,
+      });
+    }
+  }
+
+  let finalMilestones = rawMilestones;
+  if (finalMilestones.length === 0) {
+    const m1 = Math.round(heldBalance * 0.4);
+    const m2 = Math.round(heldBalance * 0.35);
+    const m3 = heldBalance - m1 - m2;
+    finalMilestones = [
+      {
+        title: "Milestone 1: Core Architecture & Setup",
+        description: "Foundational application deployment, environment variables setup, and health check validation.",
+        amount: m1,
+        percent: 40,
+        dueDate: "T+7 days",
+      },
+      {
+        title: "Milestone 2: Feature Development & Validation",
+        description: "Core business logic, interactive user flows, and state management implementation.",
+        amount: m2,
+        percent: 35,
+        dueDate: "T+21 days",
+      },
+      {
+        title: "Milestone 3: Final Production Delivery & Handoff",
+        description: "Production readiness, SSL configuration, full documentation, and project sign-off.",
+        amount: m3,
+        percent: 25,
+        dueDate: "T+35 days",
+      },
+    ];
+  } else {
+    // Reconcile minor rounding discrepancy if any
+    const totalM = finalMilestones.reduce((acc, m) => acc + m.amount, 0);
+    const diff = heldBalance - totalM;
+    if (Math.abs(diff) < 20 && diff !== 0) {
+      finalMilestones[finalMilestones.length - 1].amount += diff;
+    }
+  }
+
+  return {
+    budget,
+    advanceAmount,
+    advancePercent,
+    heldBalance,
+    milestones: finalMilestones,
+  };
+}
+
 export function generateContractArchitect(params: {
   projectId: string;
   project_title: string;
@@ -323,25 +474,119 @@ export function generateContractArchitect(params: {
   budget: number;
   currency?: string;
   target_timeline_days?: number;
+  advance_percent?: number;
+  advance_amount?: number;
+  held_balance?: number;
 }) {
   const { projectId, project_title, brief, budget, currency = "USD", target_timeline_days = 14 } = params;
-  const advancePercent = 25;
-  const advanceAmount = Math.round((budget * advancePercent) / 100);
-  const heldBalance = budget - advanceAmount;
 
-  const m1Amount = Math.round(heldBalance * 0.4);
-  const m2Amount = Math.round(heldBalance * 0.35);
-  const m3Amount = heldBalance - m1Amount - m2Amount;
+  const fin = parseBriefFinancials(brief, budget, params.advance_percent, params.advance_amount);
+  const finalBudget = fin.budget;
+  const advanceAmount = fin.advanceAmount;
+  const heldBalance = fin.heldBalance;
+  const advancePercent = fin.advancePercent;
 
   const version = 1;
+
+  // Build criteria for each milestone
+  const milestoneEntities: MilestoneEntity[] = fin.milestones.map((m, idx) => {
+    const isFirst = idx === 0;
+    const isLast = idx === fin.milestones.length - 1;
+    const mId = `m-${projectId}-${idx + 1}`;
+    const targetDays = m.dueDate || `T+${Math.max(3, Math.round(target_timeline_days * ((idx + 1) / fin.milestones.length)))} days`;
+
+    const criteria: AcceptanceCriterionEntity[] = isFirst
+      ? [
+          {
+            id: `crit-${projectId}-${idx + 1}-1`,
+            milestone_id: mId,
+            title: "Health Check Response",
+            description: "Target staging URL responds with HTTP 200 within 3000ms.",
+            verification_type: "HTTP_STATUS" as const,
+            test_config_json: { expected_status: 200 },
+            status: "PENDING" as const,
+          },
+          {
+            id: `crit-${projectId}-${idx + 1}-2`,
+            milestone_id: mId,
+            title: "Security Baseline Verification",
+            description: "Codebase repository verified with zero critical dependency vulnerabilities.",
+            verification_type: "CODE_INSPECTION" as const,
+            status: "PENDING" as const,
+          },
+        ]
+      : isLast
+      ? [
+          {
+            id: `crit-${projectId}-${idx + 1}-1`,
+            milestone_id: mId,
+            title: "End-to-End Workflow Acceptance",
+            description: "Automated test suite executes end-to-end user workflows with 100% assertions passing.",
+            verification_type: "BROWSER_INTERACTION" as const,
+            status: "PENDING" as const,
+          },
+          {
+            id: `crit-${projectId}-${idx + 1}-2`,
+            milestone_id: mId,
+            title: "Final Security Sign-off & Audit",
+            description: "Complete test suite passes and immutable verification ledger updated.",
+            verification_type: "CODE_INSPECTION" as const,
+            status: "PENDING" as const,
+          },
+        ]
+      : [
+          {
+            id: `crit-${projectId}-${idx + 1}-1`,
+            milestone_id: mId,
+            title: "User Interaction Assertions",
+            description: "Key user interaction elements load and respond without JavaScript console exceptions.",
+            verification_type: "BROWSER_INTERACTION" as const,
+            status: "PENDING" as const,
+          },
+          {
+            id: `crit-${projectId}-${idx + 1}-2`,
+            milestone_id: mId,
+            title: "Responsive Layout Conformance",
+            description: "User interface conforms to mobile and desktop viewports without layout displacement.",
+            verification_type: "RESPONSIVE_VIEWPORT" as const,
+            status: "PENDING" as const,
+          },
+        ];
+
+    return {
+      id: mId,
+      project_id: projectId,
+      title: m.title.toLowerCase().startsWith("milestone") ? m.title : `Milestone ${idx + 1}: ${m.title}`,
+      description: m.description || `Deliverables and requirements implementation for stage ${idx + 1}.`,
+      amount: m.amount,
+      currency,
+      order_index: idx,
+      due_date: targetDays,
+      status: "PENDING" as const,
+      created_at: new Date().toISOString(),
+      criteria,
+    };
+  });
+
+  const milestoneMarkdownSections = milestoneEntities
+    .map((m) => {
+      const criteriaList = m.criteria
+        .map((c) => `- **[${c.verification_type}] ${c.title}**: ${c.description}`)
+        .join("\n");
+      return `#### ${m.title} (${currency} $${m.amount.toLocaleString()})
+*Target Timeline: ${m.due_date}*  
+${m.description}
+${criteriaList}`;
+    })
+    .join("\n\n");
 
   const markdownContent = `# MASTER SERVICES & MILESTONE ESCROW AGREEMENT
 REF: VEY-AGR-${projectId.toUpperCase()}-V${version}
 
 **Project Title:** ${project_title || "Freelance Milestone Contract"}  
-**Total Value:** $${budget.toLocaleString()} ${currency}  
-**Kickoff Advance (25%):** $${advanceAmount.toLocaleString()} ${currency} *(Disbursed upon signing via PayPal Orders v2)*  
-**Secured Held Escrow (75%):** $${heldBalance.toLocaleString()} ${currency} *(Vaulted in Milestone Escrow)*  
+**Total Value:** $${finalBudget.toLocaleString()} ${currency}  
+**Kickoff Advance (${advancePercent}%):** $${advanceAmount.toLocaleString()} ${currency} *(Disbursed upon signing via PayPal Orders v2)*  
+**Secured Held Escrow (${100 - advancePercent}%):** $${heldBalance.toLocaleString()} ${currency} *(Vaulted in Milestone Escrow)*  
 **Target Delivery Timeline:** ${target_timeline_days} Days  
 
 ---
@@ -360,23 +605,7 @@ ${brief || "The Contractor agrees to deliver the specifications outlined in this
 
 ### SECTION 3: AGREED MILESTONES & TESTABLE ACCEPTANCE CRITERIA
 
-#### Milestone 1: Core Architecture & Environment Setup (${currency} $${m1Amount.toLocaleString()})
-*Target Timeline: T+${Math.max(3, Math.round(target_timeline_days * 0.25))} days*  
-Foundational application deployment, environment variables setup, and health check validation.
-- **[HTTP_STATUS] Health Check Response**: Target staging URL responds with HTTP 200 within 3000ms.
-- **[CODE_INSPECTION] Security Baseline**: Repository has zero critical vulnerabilities.
-
-#### Milestone 2: Feature Development & Validation (${currency} $${m2Amount.toLocaleString()})
-*Target Timeline: T+${Math.max(7, Math.round(target_timeline_days * 0.65))} days*  
-Core business logic, interactive user flows, and state management implementation.
-- **[BROWSER_INTERACTION] User Interaction Assertions**: Key user interaction elements load and respond without JavaScript console exceptions.
-- **[BROWSER_INTERACTION] Responsive Layout**: User interface conforms to mobile and desktop viewports.
-
-#### Milestone 3: Final Production Delivery & Handoff (${currency} $${m3Amount.toLocaleString()})
-*Target Timeline: T+${target_timeline_days} days*  
-Production readiness, SSL configuration, full documentation, and project sign-off.
-- **[BROWSER_INTERACTION] End-to-End Acceptance**: End-to-end user workflows execute successfully in automated test suite.
-- **[CODE_INSPECTION] Final Security Sign-off**: Complete test suite passes and artifacts logged to immutable ledger.
+${milestoneMarkdownSections}
 
 ---
 
@@ -389,75 +618,7 @@ In the event of scope dispute or verification deadlock, either party may request
     version,
     advanceAmount,
     heldBalance,
-    milestones: [
-      {
-        id: `m-${projectId}-1`,
-        project_id: projectId,
-        title: "Milestone 1: Core Architecture & Setup",
-        description: "Foundational application deployment, environment variables setup, and health check validation.",
-        amount: m1Amount,
-        currency,
-        order_index: 0,
-        due_date: `T+${Math.max(3, Math.round(target_timeline_days * 0.25))} days`,
-        status: "PENDING" as const,
-        created_at: new Date().toISOString(),
-        criteria: [
-          {
-            id: `crit-${projectId}-1`,
-            milestone_id: `m-${projectId}-1`,
-            title: "Health Check Response",
-            description: "Target staging URL responds with HTTP 200 within 3000ms.",
-            verification_type: "HTTP_STATUS" as const,
-            test_config_json: { expected_status: 200 },
-            status: "PENDING" as const,
-          },
-        ],
-      },
-      {
-        id: `m-${projectId}-2`,
-        project_id: projectId,
-        title: "Milestone 2: Feature Development & Validation",
-        description: "Core business logic, interactive user flows, and state management implementation.",
-        amount: m2Amount,
-        currency,
-        order_index: 1,
-        due_date: `T+${Math.max(7, Math.round(target_timeline_days * 0.65))} days`,
-        status: "PENDING" as const,
-        created_at: new Date().toISOString(),
-        criteria: [
-          {
-            id: `crit-${projectId}-2`,
-            milestone_id: `m-${projectId}-2`,
-            title: "User Interaction Assertions",
-            description: "Key user interaction elements load and respond without JavaScript console exceptions.",
-            verification_type: "BROWSER_INTERACTION" as const,
-            status: "PENDING" as const,
-          },
-        ],
-      },
-      {
-        id: `m-${projectId}-3`,
-        project_id: projectId,
-        title: "Milestone 3: Final Production Delivery & Handoff",
-        description: "Production readiness, SSL configuration, full documentation, and project sign-off.",
-        amount: m3Amount,
-        currency,
-        order_index: 2,
-        due_date: `T+${target_timeline_days} days`,
-        status: "PENDING" as const,
-        created_at: new Date().toISOString(),
-        criteria: [
-          {
-            id: `crit-${projectId}-3`,
-            milestone_id: `m-${projectId}-3`,
-            title: "End-to-End Acceptance",
-            description: "End-to-end user workflows execute successfully in automated test suite.",
-            verification_type: "BROWSER_INTERACTION" as const,
-            status: "PENDING" as const,
-          },
-        ],
-      },
-    ],
+    milestones: milestoneEntities,
   };
 }
 

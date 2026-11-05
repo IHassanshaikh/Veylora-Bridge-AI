@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { 
@@ -29,11 +29,54 @@ export default function NewProjectPage() {
   const [generatedContract, setGeneratedContract] = useState<any>(null);
   const [createdProject, setCreatedProject] = useState<any>(null);
   const [invitationData, setInvitationData] = useState<any>(null);
+  const [inviteFullUrl, setInviteFullUrl] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const advanceAmount = Math.round((budget * advancePercent) / 100);
   const heldBalance = budget - advanceAmount;
+
+  // Auto-detect financials if user types or pastes payment breakdown in brief
+  useEffect(() => {
+    if (!brief) return;
+    const totalMatch =
+      brief.match(/\$?([\d,]+(?:\.\d+)?)\s*(?:USD)?\s*(?:TOTAL\s+PROJECT\s+BUDGET|TOTAL\s+BUDGET|TOTAL\s+CONTRACT\s+VALUE)/i) ||
+      brief.match(/(?:TOTAL\s+PROJECT\s+BUDGET|TOTAL\s+BUDGET|TOTAL\s+VALUE)\s*(?:is|:)?\s*\$?([\d,]+(?:\.\d+)?)/i);
+    if (totalMatch) {
+      const parsedVal = parseFloat(totalMatch[1].replace(/,/g, ""));
+      if (!isNaN(parsedVal) && parsedVal >= 100) {
+        setBudget(parsedVal);
+      }
+    }
+
+    const advPctMatch =
+      brief.match(/(\d+)%\s*(?:Advance|Kickoff|Deposit|Upfront)/i) ||
+      brief.match(/(?:Advance|Kickoff|Deposit|Upfront)\s*(?:of|:)?\s*(\d+)%/i);
+    if (advPctMatch) {
+      const parsedPct = parseFloat(advPctMatch[1]);
+      if (!isNaN(parsedPct) && parsedPct >= 5 && parsedPct <= 90) {
+        setAdvancePercent(parsedPct);
+      }
+    }
+
+    const daysMatch = brief.match(/(?:after|in|within|t\+)?\s*(\d+)\s*days/i);
+    if (daysMatch) {
+      const parsedDays = parseInt(daysMatch[1]);
+      if (!isNaN(parsedDays) && parsedDays > 0) {
+        setTimelineDays(parsedDays);
+      }
+    }
+  }, [brief]);
+
+  // Synchronize shareable invitation URL
+  useEffect(() => {
+    const token = invitationData?.token || createdProject?.invitation_token;
+    const path = invitationData?.invite_url || (token ? `/invite/${token}` : "");
+    if (path && typeof window !== "undefined") {
+      const full = path.startsWith("http") ? path : `${window.location.origin}${path}`;
+      setInviteFullUrl(full);
+    }
+  }, [invitationData, createdProject]);
 
   const handleGenerateContract = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,7 +93,11 @@ export default function NewProjectPage() {
         title,
         description: brief,
         budget: Number(budget),
-        category
+        category,
+        advance_percent: advancePercent,
+        advance_amount: advanceAmount,
+        held_balance: heldBalance,
+        currency: "USD",
       });
       setCreatedProject(project);
 
@@ -60,7 +107,10 @@ export default function NewProjectPage() {
         brief,
         budget: Number(budget),
         currency: "USD",
-        target_timeline_days: Number(timelineDays)
+        target_timeline_days: Number(timelineDays),
+        advance_percent: advancePercent,
+        advance_amount: advanceAmount,
+        held_balance: heldBalance,
       });
       setGeneratedContract(contract);
 
@@ -316,14 +366,12 @@ export default function NewProjectPage() {
 
           {/* Invitation Link & Share Banner */}
           {(invitationData || createdProject?.invitation_token) && (
-            <div className="payflow-card p-6 bg-slate-900 text-white space-y-3">
+            <div className="p-6 rounded-2xl bg-slate-900 text-white space-y-3 border border-slate-800 shadow-md">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Mail className="h-4 w-4 text-blue-400" />
                   <span className="text-xs font-bold uppercase tracking-wider text-blue-300">
-                    {invitationData?.email_preview?.to && invitationData.email_preview.to !== "Counterparty"
-                      ? `Invitation Sent to ${invitationData.email_preview.to}`
-                      : "Counterparty Invitation Link"}
+                    {inviteeEmail ? `Invitation Link for ${inviteeEmail}` : "Counterparty Collaboration Link"}
                   </span>
                 </div>
                 <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
@@ -331,10 +379,8 @@ export default function NewProjectPage() {
                 </span>
               </div>
               <div className="p-3 rounded-xl bg-slate-950 font-mono text-xs text-blue-200 flex items-center justify-between gap-3 overflow-x-auto border border-slate-800">
-                <span className="truncate select-all text-xs text-slate-100 font-semibold tracking-wide">
-                  {typeof window !== "undefined"
-                    ? `${window.location.origin}${invitationData?.invite_url || `/invite/${invitationData?.token || createdProject?.invitation_token}`}`
-                    : invitationData?.invite_url || `/invite/${invitationData?.token || createdProject?.invitation_token}`}
+                <span className="truncate select-all text-xs text-white font-semibold tracking-wide">
+                  {inviteFullUrl || (invitationData?.token ? `${typeof window !== "undefined" ? window.location.origin : ""}/invite/${invitationData.token}` : "Generating link...")}
                 </span>
                 <button
                   type="button"

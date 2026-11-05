@@ -956,6 +956,12 @@ export const db = {
     return loadDb().invoices.filter((i) => i.project_id === projectId);
   },
 
+  deleteInvoicesForProject(projectId: string): void {
+    const state = loadDb();
+    state.invoices = state.invoices.filter((i) => i.project_id !== projectId);
+    saveDb(state);
+  },
+
   createInvoice(inv: InvoiceEntity): InvoiceEntity {
     const state = loadDb();
     state.invoices.push(inv);

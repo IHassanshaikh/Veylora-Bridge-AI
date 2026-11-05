@@ -9,6 +9,7 @@ import {
   recordAuditEvent,
   runVerificationSuite,
   generateContractArchitect,
+  parseBriefFinancials,
 } from "@/server/agents";
 
 // Helper to format JSON response
@@ -54,6 +55,14 @@ export async function GET(
   if (path === "auth/users") {
     const users = db.getUsers().map(({ password_hash, ...rest }) => rest);
     return json(users);
+  }
+
+  // 1a. Single User: /api/auth/users/[id]
+  if (slug[0] === "auth" && slug[1] === "users" && slug.length === 3) {
+    const user = db.getUserById(slug[2]);
+    if (!user) return badRequest("User not found", 404);
+    const { password_hash, ...safeUser } = user;
+    return json(safeUser);
   }
 
   // 2. Auth: /api/auth/me
@@ -430,12 +439,29 @@ export async function POST(
 
   // 6. Projects: /api/projects
   if (path === "projects") {
-    const { client_id, freelancer_id, title, description, budget, category, currency } = body;
+    const {
+      client_id,
+      freelancer_id,
+      title,
+      description,
+      budget,
+      category,
+      currency,
+      advance_percent,
+      advance_amount,
+      held_balance,
+    } = body;
     if (!title || !budget) return badRequest("Title and budget are required");
 
-    const totalBudget = Number(budget);
-    const advanceAmount = Math.round(totalBudget * 0.25);
-    const heldBalance = totalBudget - advanceAmount;
+    const fin = parseBriefFinancials(
+      description || "",
+      Number(budget),
+      advance_percent,
+      advance_amount
+    );
+    const totalBudget = fin.budget;
+    const finalAdvanceAmount = fin.advanceAmount;
+    const finalHeldBalance = fin.heldBalance;
 
     const projectId = `proj-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const newProject = db.createProject({
@@ -446,83 +472,36 @@ export async function POST(
       description: description || "",
       category: category || "Web Development",
       budget: totalBudget,
-      advance_amount: advanceAmount,
-      held_balance: heldBalance,
+      advance_amount: finalAdvanceAmount,
+      held_balance: finalHeldBalance,
       advance_status: "PENDING",
       held_balance_status: "UNFUNDED",
       invitation_token: `invite-${Date.now()}`,
       currency: currency || "USD",
       status: "IN_PROGRESS",
       created_at: new Date().toISOString(),
-      milestones: [
-        {
-          id: `m-${projectId}-1`,
-          project_id: projectId,
-          title: "Milestone 1: Core Architecture & Setup",
-          description: "Initialize repository, foundational layouts, and development deployment.",
-          amount: Math.round(heldBalance * 0.4),
-          currency: currency || "USD",
-          order_index: 0,
-          due_date: "T+7 days",
-          status: "PENDING",
-          created_at: new Date().toISOString(),
-          criteria: [
-            {
-              id: `crit-${projectId}-1`,
-              milestone_id: `m-${projectId}-1`,
-              title: "HTTP 200 Health Check",
-              description: "Target application responds with HTTP 200 within 3 seconds.",
-              verification_type: "HTTP_STATUS",
-              test_config_json: { expected_status: 200 },
-              status: "PENDING",
-            },
-          ],
-        },
-        {
-          id: `m-${projectId}-2`,
-          project_id: projectId,
-          title: "Milestone 2: Feature Development & Validation",
-          description: "Implement interactive core features, test suite, and form validations.",
-          amount: Math.round(heldBalance * 0.35),
-          currency: currency || "USD",
-          order_index: 1,
-          due_date: "T+21 days",
-          status: "PENDING",
-          created_at: new Date().toISOString(),
-          criteria: [
-            {
-              id: `crit-${projectId}-2`,
-              milestone_id: `m-${projectId}-2`,
-              title: "Interactive DOM Testing",
-              description: "User interactions process without console errors.",
-              verification_type: "BROWSER_INTERACTION",
-              status: "PENDING",
-            },
-          ],
-        },
-        {
-          id: `m-${projectId}-3`,
-          project_id: projectId,
-          title: "Milestone 3: Final Production Handoff",
-          description: "Production readiness, SSL configuration, documentation, and handoff.",
-          amount: heldBalance - Math.round(heldBalance * 0.4) - Math.round(heldBalance * 0.35),
-          currency: currency || "USD",
-          order_index: 2,
-          due_date: "T+35 days",
-          status: "PENDING",
-          created_at: new Date().toISOString(),
-          criteria: [
-            {
-              id: `crit-${projectId}-3`,
-              milestone_id: `m-${projectId}-3`,
-              title: "Code Inspection & Security Sign-off",
-              description: "Zero high vulnerabilities and complete documentation.",
-              verification_type: "CODE_INSPECTION",
-              status: "PENDING",
-            },
-          ],
-        },
-      ],
+      milestones: fin.milestones.map((m, idx) => ({
+        id: `m-${projectId}-${idx + 1}`,
+        project_id: projectId,
+        title: m.title.toLowerCase().startsWith("milestone") ? m.title : `Milestone ${idx + 1}: ${m.title}`,
+        description: m.description || `Deliverables and requirements for phase ${idx + 1}.`,
+        amount: m.amount,
+        currency: currency || "USD",
+        order_index: idx,
+        due_date: m.dueDate || `T+${(idx + 1) * 14} days`,
+        status: "PENDING",
+        created_at: new Date().toISOString(),
+        criteria: [
+          {
+            id: `crit-${projectId}-${idx + 1}`,
+            milestone_id: `m-${projectId}-${idx + 1}`,
+            title: idx === 0 ? "Health Check & Environment Setup" : idx === fin.milestones.length - 1 ? "End-to-End Acceptance" : "Feature Interaction Validation",
+            description: idx === 0 ? "Application responds with HTTP 200 within 3 seconds." : "Features execute and pass verification suite.",
+            verification_type: idx === 0 ? "HTTP_STATUS" : "BROWSER_INTERACTION",
+            status: "PENDING",
+          },
+        ],
+      })),
       contracts: [],
     });
 
@@ -535,9 +514,9 @@ export async function POST(
 REF: VEY-AGR-${projectId.toUpperCase()}-V1
 
 **Client:** Alex Rivera  
-**Total Value:** $${totalBudget.toLocaleString()} USD  
-**Kickoff Advance:** $${advanceAmount.toLocaleString()} USD  
-**Held Escrow:** $${heldBalance.toLocaleString()} USD  
+**Total Value:** $${totalBudget.toLocaleString()} ${currency || "USD"}  
+**Kickoff Advance (${fin.advancePercent}%):** $${finalAdvanceAmount.toLocaleString()} ${currency || "USD"}  
+**Held Escrow (${100 - fin.advancePercent}%):** $${finalHeldBalance.toLocaleString()} ${currency || "USD"}  
 
 ### SCOPE & DELIVERABLES
 ${description || title}`,
@@ -550,7 +529,7 @@ ${description || title}`,
       action: "PROJECT_CREATED",
       actorId: client_id,
       actorRole: "client",
-      details: { title, budget: totalBudget },
+      details: { title, budget: totalBudget, advance: finalAdvanceAmount, held: finalHeldBalance },
     });
 
     return json(newProject, 201);
@@ -574,18 +553,61 @@ ${description || title}`,
       budget,
       currency,
       target_timeline_days: timelineDays,
+      advance_percent: body.advance_percent ?? (project?.advance_amount && project?.budget ? Math.round((project.advance_amount / project.budget) * 100) : undefined),
+      advance_amount: body.advance_amount ?? project?.advance_amount,
+      held_balance: body.held_balance ?? project?.held_balance,
     });
 
     if (project) {
       db.updateProject(projectId, {
         title,
         description: brief,
-        budget,
+        budget: generated.milestones.reduce((acc, m) => acc + m.amount, generated.advanceAmount),
         advance_amount: generated.advanceAmount,
         held_balance: generated.heldBalance,
         currency,
         milestones: generated.milestones,
       });
+
+      // Synchronize invoices to reflect exact milestones and kickoff advance
+      const existingInvoices = db.getInvoices(projectId);
+      const hasPaid = existingInvoices.some((i) => i.status === "RELEASED");
+      if (!hasPaid) {
+        db.deleteInvoicesForProject(projectId);
+        // Kickoff advance invoice
+        db.createInvoice({
+          id: `inv-${projectId}-0`,
+          project_id: projectId,
+          milestone_id: null,
+          invoice_number: `INV-${projectId.toUpperCase()}-001`,
+          order_index: 0,
+          amount: generated.advanceAmount,
+          currency,
+          title: "Upfront Kickoff Advance Deposit",
+          status: project.advance_status === "PAID" ? "RELEASED" : "PENDING_DEPOSIT",
+          due_date: "Immediate",
+          created_at: new Date().toISOString(),
+          paid_at: project.advance_status === "PAID" ? new Date().toISOString() : null,
+        });
+
+        // Milestone invoices
+        generated.milestones.forEach((m, idx) => {
+          db.createInvoice({
+            id: `inv-${projectId}-${idx + 1}`,
+            project_id: projectId,
+            milestone_id: m.id,
+            invoice_number: `INV-${projectId.toUpperCase()}-00${idx + 2}`,
+            order_index: idx + 1,
+            amount: m.amount,
+            currency: m.currency || currency,
+            title: m.title,
+            status: "HELD_IN_ESCROW",
+            due_date: m.due_date,
+            created_at: new Date().toISOString(),
+            paid_at: null,
+          });
+        });
+      }
     }
 
     const version = project?.contracts && project.contracts.length > 0
@@ -658,14 +680,27 @@ ${description || title}`,
     const projects = db.getProjects();
     for (const p of projects) {
       if (p.id === contractOrProjectId || p.contracts?.some((c) => c.id === contractOrProjectId)) {
-        if (!updated && p.contracts && p.contracts.length > 0) {
-          updated = db.updateContract(p.contracts[p.contracts.length - 1].id, {
-            is_on_hold: true,
-            hold_reason: body.reason || "Counterparty requested revision hold.",
-            status: "ON_HOLD",
-          });
+        if (!updated) {
+          if (p.contracts && p.contracts.length > 0) {
+            updated = db.updateContract(p.contracts[p.contracts.length - 1].id, {
+              is_on_hold: true,
+              hold_reason: body.reason || "Counterparty requested revision hold.",
+              status: "ON_HOLD",
+            });
+          } else {
+            updated = db.createContract({
+              id: `contract-${p.id}`,
+              project_id: p.id,
+              version: 1,
+              content_markdown: `# MASTER SERVICES & MILESTONE ESCROW AGREEMENT\n\n**Project:** ${p.title}\n**Budget:** $${p.budget} USD\n\n${p.description}`,
+              status: "ON_HOLD",
+              is_on_hold: true,
+              hold_reason: body.reason || "Counterparty requested revision hold.",
+              created_at: new Date().toISOString(),
+            });
+          }
         }
-        db.updateProject(p.id, { status: "IN_PROGRESS" });
+        db.updateProject(p.id, { status: "DRAFT" });
         recordAuditEvent({
           projectId: p.id,
           action: "CONTRACT_PLACED_ON_HOLD",
@@ -682,12 +717,34 @@ ${description || title}`,
 
   // 12. Contracts: Resume: /api/contracts/[id]/resume
   if (slug[0] === "contracts" && slug.length === 3 && slug[2] === "resume") {
-    const updated = db.updateContract(slug[1], {
+    const contractOrProjectId = slug[1];
+    let updated = db.updateContract(contractOrProjectId, {
       is_on_hold: false,
       hold_reason: undefined,
       status: "ACCEPTED",
     });
-    return json(updated);
+
+    for (const p of db.getProjects()) {
+      if (p.id === contractOrProjectId || p.contracts?.some((c) => c.id === contractOrProjectId)) {
+        if (!updated && p.contracts && p.contracts.length > 0) {
+          updated = db.updateContract(p.contracts[p.contracts.length - 1].id, {
+            is_on_hold: false,
+            hold_reason: undefined,
+            status: "ACCEPTED",
+          });
+        }
+        db.updateProject(p.id, { status: "IN_PROGRESS" });
+        recordAuditEvent({
+          projectId: p.id,
+          action: "CONTRACT_RESUMED",
+          actorId: url.searchParams.get("user_id") || "client",
+          actorRole: url.searchParams.get("role") || "client",
+          details: { contract_id: contractOrProjectId },
+        });
+        break;
+      }
+    }
+    return json(updated || { id: contractOrProjectId, is_on_hold: false, status: "ACCEPTED" });
   }
 
   // 13. Contracts: Comments: /api/contracts/[id]/comments
@@ -1011,7 +1068,11 @@ ${description || title}`,
     }
 
     const existing = db.getInvoices(projectId);
-    if (existing.length === 0) {
+    const hasPaid = existing.some((i) => i.status === "RELEASED");
+    if (existing.length === 0 || (body.force && !hasPaid)) {
+      if (existing.length > 0) {
+        db.deleteInvoicesForProject(projectId);
+      }
       // Advance invoice
       db.createInvoice({
         id: `inv-${projectId}-0`,
@@ -1019,7 +1080,7 @@ ${description || title}`,
         milestone_id: null,
         invoice_number: `INV-${projectId.toUpperCase()}-001`,
         order_index: 0,
-        amount: project.advance_amount || Math.round(project.budget * 0.25),
+        amount: project.advance_amount ?? Math.round(project.budget * 0.25),
         currency: project.currency || "USD",
         title: "Upfront Kickoff Advance Deposit",
         status: project.advance_status === "PAID" ? "RELEASED" : "PENDING_DEPOSIT",
