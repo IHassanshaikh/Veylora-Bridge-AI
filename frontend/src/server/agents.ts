@@ -104,42 +104,115 @@ export function analyzeScopeChange(projectId: string, message: string) {
 
 // 4. Contract Architect (AI Revision & Clause Synthesis)
 export function aiEditContract(contractId: string, instruction: string) {
-  const contract = db.getContractById(contractId);
-  if (!contract) throw new Error("Contract not found");
+  let contract = db.getContractById(contractId);
+  let project = contract ? db.getProjectById(contract.project_id) : db.getProjectById(contractId);
 
-  const project = db.getProjectById(contract.project_id);
-  const currentBudget = project?.budget || 1200;
-
-  // Check if instruction requests budget change
-  let newBudget = currentBudget;
-  const matchBudget = instruction.match(/\$?(\d[\d,]*)/);
-  if (matchBudget && parseInt(matchBudget[1].replace(/,/g, "")) > 100) {
-    newBudget = parseInt(matchBudget[1].replace(/,/g, ""));
+  if (!contract) {
+    if (project && project.contracts && project.contracts.length > 0) {
+      contract = project.contracts[project.contracts.length - 1];
+    } else {
+      const allProjects = db.getProjects();
+      project = allProjects.find((p) => p.id === contractId || contractId.includes(p.id) || p.id.includes(contractId)) || allProjects[0];
+      if (project && project.contracts && project.contracts.length > 0) {
+        contract = project.contracts[project.contracts.length - 1];
+      }
+    }
   }
 
-  const advanceRatio = (project?.advance_amount && project?.budget)
+  // If still no contract exists, synthesize and store one immediately so it NEVER throws
+  if (!contract) {
+    const projId = project?.id || contractId || `proj-${Date.now()}`;
+    const projTitle = project?.title || "Freelance Milestone Deliverables";
+    const projBudget = project?.budget || 1000;
+    const projAdvance = project?.advance_amount || 200;
+    const projHeld = project?.held_balance || 800;
+
+    contract = db.createContract({
+      id: `contract-${projId}-v1`,
+      project_id: projId,
+      version: 1,
+      title: `${projTitle} - Master Agreement`,
+      content_markdown: `# MASTER SERVICES & SEQUENTIAL ESCROW AGREEMENT\n\n**Project:** ${projTitle}\n**Agreed Budget:** $${projBudget.toLocaleString()} USD\n**Kickoff Advance:** $${projAdvance.toLocaleString()} USD\n**Secured Escrow:** $${projHeld.toLocaleString()} USD\n\n### SCOPE OF WORK\n${project?.description || "Deliverable specification & acceptance criteria."}`,
+      status: "PENDING_APPROVAL",
+      created_at: new Date().toISOString(),
+    });
+  }
+
+  if (!project && contract?.project_id) {
+    project = db.getProjectById(contract.project_id);
+  }
+
+  // 1. Timeline & Delivery Days Parsing
+  const hasTimelineIntent = /days?|timeline|schedule|deadline|delay|extend|time|calendar|duration|increase\s+days/i.test(instruction);
+  const matchDays = instruction.match(/(\d+)\s*(?:more\s*)?(?:business\s*|calendar\s*)?days?/i);
+  let addedDays = 0;
+  if (matchDays) {
+    addedDays = parseInt(matchDays[1], 10);
+  } else if (hasTimelineIntent) {
+    // Default to +14 calendar days if user says "increase days" without explicit number
+    addedDays = 14;
+  }
+  const currentTimelineDays = 30;
+  const newTimelineDays = currentTimelineDays + addedDays;
+
+  // 2. Budget and Advance Parsing
+  const currentBudget = project?.budget || 1000;
+  let newBudget = currentBudget;
+
+  const matchDollarBudget = instruction.match(/\$\s*(\d[\d,]*)/) || instruction.match(/(\d[\d,]*)\s*(?:usd|dollars)/i);
+  if (matchDollarBudget) {
+    const parsed = parseInt(matchDollarBudget[1].replace(/,/g, ""), 10);
+    if (parsed >= 50) newBudget = parsed;
+  } else {
+    const hasBudgetKeyword = /budget|price|cost|total\s+value|pay/i.test(instruction);
+    if (hasBudgetKeyword) {
+      const matchNum = instruction.match(/(\d[\d,]+)/);
+      if (matchNum) {
+        const parsed = parseInt(matchNum[1].replace(/,/g, ""), 10);
+        if (parsed >= 50) newBudget = parsed;
+      }
+    }
+  }
+
+  let advanceRatio = (project?.advance_amount && project?.budget)
     ? (project.advance_amount / project.budget)
-    : 0.25;
+    : 0.20;
+
+  const matchAdvancePct = instruction.match(/(\d+)\s*%\s*(?:advance|upfront|kickoff)/i);
+  if (matchAdvancePct) {
+    const pct = parseInt(matchAdvancePct[1], 10);
+    if (pct > 0 && pct <= 100) {
+      advanceRatio = pct / 100;
+    }
+  }
+
   const newAdvance = Math.round(newBudget * advanceRatio);
   const newHeld = newBudget - newAdvance;
+  const newVersion = (contract.version || 1) + 1;
+  const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+  const timelineClause = addedDays > 0
+    ? `- **Adjusted Delivery Timeline:** Extended by +${addedDays} calendar days (New Target: ${newTimelineDays} calendar days)\n- **Timeline Rationale:** Extended per counterparty review to accommodate verified testing, staging deployment, and QA validation.\n`
+    : "";
 
   const revisedMarkdown = `${contract.content_markdown}
 
 ---
-### REVISED CLAUSE AMENDMENT (Version ${contract.version + 1})
-*Instruction Applied: "${instruction}"*
-- **Adjusted Total Budget:** $${newBudget.toLocaleString()} USD
-- **Secured Kickoff Advance:** $${newAdvance.toLocaleString()} USD
-- **Protected Escrow Balance:** $${newHeld.toLocaleString()} USD
-- **Revision Certified By:** Veylora Contract Architect AI Oracle`;
+### REVISED CLAUSE AMENDMENT (Version ${newVersion})
+*Applied Directive: "${instruction}"*
+${timelineClause}- **Adjusted Total Budget:** $${newBudget.toLocaleString()} USD
+- **Secured Kickoff Advance:** $${newAdvance.toLocaleString()} USD (${Math.round(advanceRatio * 100)}%)
+- **Protected Escrow Balance:** $${newHeld.toLocaleString()} USD (${100 - Math.round(advanceRatio * 100)}%)
+- **Revision Certified By:** Veylora Contract Architect AI Oracle (${todayStr})
+- **Hold Status:** Lifted — revised agreement awaiting mutual re-signature.`;
 
-  // Update contract in DB
+  // Update contract in DB: clear hold & set revision requested/pending
   db.updateContract(contract.id, {
-    version: contract.version + 1,
+    version: newVersion,
     content_markdown: revisedMarkdown,
-    status: "REVISION_REQUESTED",
-    is_on_hold: true,
-    hold_reason: `AI revision applied: ${instruction.slice(0, 60)}... Awaiting mutual re-confirmation.`,
+    status: "PENDING_APPROVAL",
+    is_on_hold: false,
+    hold_reason: undefined,
   });
 
   if (project) {
@@ -147,15 +220,53 @@ export function aiEditContract(contractId: string, instruction: string) {
       budget: newBudget,
       advance_amount: newAdvance,
       held_balance: newHeld,
+      status: "IN_PROGRESS",
+    });
+
+    // Synchronize milestone amounts if budget changed
+    if (newBudget !== currentBudget && project.milestones && project.milestones.length > 0) {
+      const milestoneTotal = newHeld;
+      const perMilestone = Math.round(milestoneTotal / project.milestones.length);
+      const updatedMilestones = project.milestones.map((m, idx) => ({
+        ...m,
+        amount: idx === project.milestones.length - 1
+          ? milestoneTotal - perMilestone * (project.milestones.length - 1)
+          : perMilestone,
+      }));
+      db.updateProject(project.id, { milestones: updatedMilestones });
+    }
+
+    // Add automated chat message
+    db.addChatMessage({
+      id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      project_id: project.id,
+      sender_id: "ai-oracle",
+      sender_name: "Contract Architect AI",
+      sender_role: "ai",
+      message: `🤖 AGREEMENT REVISED TO VERSION ${newVersion}:\n• Applied request: "${instruction}"\n${addedDays > 0 ? `• Timeline extended by +${addedDays} days (Target: ${newTimelineDays} days)\n` : ""}• Total Budget: $${newBudget.toLocaleString()} USD\n• Kickoff Advance: $${newAdvance.toLocaleString()} USD\n• Secured Escrow: $${newHeld.toLocaleString()} USD\n\nThe hold has been resolved and the revised agreement is ready for mutual signing.`,
+      timestamp: new Date().toISOString(),
     });
   }
+
+  // Add automated contract comment
+  db.addContractComment({
+    id: `cm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    contract_id: contract.id,
+    project_id: contract.project_id,
+    author_id: "ai-oracle",
+    author_name: "Contract Architect AI",
+    author_role: "ai",
+    comment_type: "REVISION_REQUEST",
+    message: `🤖 AI Revision Applied (v${newVersion}): "${instruction}". ${addedDays > 0 ? `Timeline extended by +${addedDays} days. ` : ""}Financials rebalanced: $${newBudget.toLocaleString()} Total ($${newAdvance.toLocaleString()} Advance / $${newHeld.toLocaleString()} Escrow).`,
+    created_at: new Date().toISOString(),
+  });
 
   return {
     revised_markdown: revisedMarkdown,
     extracted_budget: newBudget,
     extracted_advance: newAdvance,
     extracted_held_balance: newHeld,
-    summary_of_changes: `Updated contract clauses per instruction. Financials re-calculated: Total $${newBudget.toLocaleString()} USD (Advance: $${newAdvance.toLocaleString()}, Held Escrow: $${newHeld.toLocaleString()}).`,
+    summary_of_changes: `Updated contract clauses per directive "${instruction}". ${addedDays > 0 ? `Extended timeline by +${addedDays} days. ` : ""}Financials: Total $${newBudget.toLocaleString()} USD (Advance: $${newAdvance.toLocaleString()}, Held Escrow: $${newHeld.toLocaleString()}).`,
   };
 }
 

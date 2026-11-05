@@ -8,7 +8,8 @@ import {
   CreditCard, RefreshCw, X, Scale, Info, FileText,
   Layers, Check, AlertTriangle, ArrowRight, Copy,
   ExternalLink, Play, Lock, AlertCircle,
-  HelpCircle, MessageSquare, ChevronRight, Hash
+  HelpCircle, MessageSquare, ChevronRight, Hash,
+  PauseCircle, Sparkles
 } from "lucide-react";
 import { api, Project, Milestone, VerificationRun, AuditEvent } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -55,6 +56,8 @@ function ProjectRoomContent() {
   const [dealGuardianReport, setDealGuardianReport] = useState<any | null>(null);
   const [analyzingDeal, setAnalyzingDeal] = useState(false);
   const [isContractEditorOpen, setIsContractEditorOpen] = useState(false);
+  const [isResumingContract, setIsResumingContract] = useState(false);
+  const [aiRevisionInitialInstruction, setAiRevisionInitialInstruction] = useState("");
 
   // Tab 4: Submission state
   const [subMilestoneId, setSubMilestoneId] = useState<string>("");
@@ -159,6 +162,20 @@ function ProjectRoomContent() {
   const switchTab = (t: WorkspaceTab) => {
     setActiveTab(t);
     router.replace(`/projects/${projectId}?tab=${t}`, { scroll: false });
+  };
+
+  // Resume Agreement (Lift Hold)
+  const handleResumeContract = async () => {
+    if (!latestContract) return;
+    try {
+      setIsResumingContract(true);
+      await api.resumeContract(latestContract.id, user?.id, role);
+      await loadProject();
+    } catch (err: any) {
+      alert("Failed to resume contract: " + (err.message || "Unknown error"));
+    } finally {
+      setIsResumingContract(false);
+    }
   };
 
   // Agent 2: Run Deal Guardian
@@ -568,23 +585,91 @@ function ProjectRoomContent() {
         </div>
       </div>
 
+      {/* GLOBAL HIGH-CONTRAST HOLD & CHANGE REQUEST ALERT BANNER */}
+      {(latestContract?.is_on_hold || latestContract?.status === "ON_HOLD") && (
+        <div className="p-5 rounded-2xl bg-amber-50 border-2 border-amber-400 shadow-md space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                <PauseCircle className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-amber-950 bg-amber-200/90 px-2 py-0.5 rounded">
+                    Agreement On Hold
+                  </span>
+                  <span className="text-xs font-bold text-amber-900">
+                    Client Requested Changes &amp; Feedback
+                  </span>
+                </div>
+                <h3 className="text-sm font-black text-amber-950 mt-0.5">
+                  Action Required: Counterparty placed the agreement on hold before signing.
+                </h3>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setAiRevisionInitialInstruction(latestContract.hold_reason || "Revise agreement timeline and scope");
+                  setIsContractEditorOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs transition-colors shadow-xs cursor-pointer"
+              >
+                <Sparkles className="h-4 w-4" />
+                <span>✨ Revise Agreement with AI</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleResumeContract}
+                disabled={isResumingContract}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-white hover:bg-slate-50 text-amber-950 border border-amber-300 font-extrabold text-xs transition-colors shadow-2xs cursor-pointer"
+              >
+                {isResumingContract ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                )}
+                <span>Mark Done &amp; Lift Hold</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Client's Exact Request Message Box */}
+          <div className="p-3.5 rounded-xl bg-white border border-amber-200 text-xs text-slate-800 flex items-start gap-3 shadow-2xs">
+            <span className="font-black text-amber-900 shrink-0 uppercase text-[10px] tracking-wide bg-amber-100 px-2 py-0.5 rounded">
+              Client Feedback
+            </span>
+            <div className="font-semibold text-slate-900 italic text-xs leading-relaxed">
+              &ldquo;{latestContract.hold_reason || "Please review deliverables, adjust delivery schedule or milestone budgets before signing."}&rdquo;
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tab Navigation Bar (Sleek Edge-to-Edge Segmented Control Bar) */}
       <div className="w-full bg-slate-100/90 p-1.5 rounded-2xl border border-slate-200/80 shadow-2xs overflow-x-auto scrollbar-none">
         <div className="flex items-center gap-1 min-w-max xl:min-w-0 xl:w-full pr-4 xl:pr-0">
           {tabs.map((t) => {
             const Icon = t.icon;
             const isActive = activeTab === t.id;
+            const hasHoldBadge = (t.id === "contract" || t.id === "chat") && (latestContract?.is_on_hold || latestContract?.status === "ON_HOLD");
             return (
               <button
                 key={t.id}
                 onClick={() => switchTab(t.id as WorkspaceTab)}
-                className={`flex-1 shrink-0 xl:shrink xl:min-w-0 flex items-center justify-center gap-1.5 px-3 xl:px-2.5 py-2 rounded-xl font-bold text-xs whitespace-nowrap transition-all cursor-pointer ${isActive
+                className={`flex-1 shrink-0 xl:shrink xl:min-w-0 flex items-center justify-center gap-1.5 px-3 xl:px-2.5 py-2 rounded-xl font-bold text-xs whitespace-nowrap transition-all cursor-pointer relative ${isActive
                     ? "bg-white text-slate-950 shadow-xs border border-slate-200/80"
                     : "text-slate-600 hover:text-slate-950 hover:bg-white/50"
                   }`}
               >
                 <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? "text-slate-900" : "text-slate-400"}`} />
                 <span>{t.label}</span>
+                {hasHoldBadge && (
+                  <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse ml-0.5" title="Hold notice active" />
+                )}
               </button>
             );
           })}
@@ -769,22 +854,8 @@ function ProjectRoomContent() {
               userRole={role}
               isOnHold={latestContract.is_on_hold}
               holdReason={latestContract.hold_reason}
+              onResumeReview={handleResumeContract}
               onCommentsUpdated={loadProject}
-            />
-          )}
-
-          {/* Modal: Inline Contract Clause & Milestones Editor */}
-          {latestContract && (
-            <ContractEditorModal
-              isOpen={isContractEditorOpen}
-              onClose={() => setIsContractEditorOpen(false)}
-              contract={latestContract}
-              userId={user?.id}
-              userRole={role}
-              onSaved={() => {
-                setIsContractEditorOpen(false);
-                loadProject();
-              }}
             />
           )}
         </div>
@@ -1604,6 +1675,22 @@ function ProjectRoomContent() {
           onPayoutSuccess={loadProject}
           onDepositNextMilestone={() => {
             switchTab("invoices");
+          }}
+        />
+      )}
+
+      {/* Modal: Inline Contract Clause & Milestones Editor (Available globally from any tab) */}
+      {latestContract && (
+        <ContractEditorModal
+          isOpen={isContractEditorOpen}
+          onClose={() => setIsContractEditorOpen(false)}
+          contract={latestContract}
+          userId={user?.id}
+          userRole={role}
+          initialInstruction={aiRevisionInitialInstruction || latestContract.hold_reason}
+          onSaved={() => {
+            setIsContractEditorOpen(false);
+            loadProject();
           }}
         />
       )}

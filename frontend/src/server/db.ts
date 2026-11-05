@@ -53,6 +53,7 @@ export interface ContractEntity {
   id: string;
   project_id: string;
   version: number;
+  title?: string;
   content_markdown: string;
   content_json?: any;
   status: "DRAFT" | "PENDING_APPROVAL" | "ON_HOLD" | "REVISION_REQUESTED" | "ACCEPTED" | "SUPERSEDED";
@@ -91,9 +92,9 @@ export interface ContractCommentEntity {
   project_id: string;
   author_id: string;
   author_name: string;
-  author_role: "client" | "freelancer" | "admin";
+  author_role: "client" | "freelancer" | "admin" | "ai";
   message: string;
-  comment_type: "COMMENT" | "REVISION_REQUEST" | "HOLD_NOTICE" | "CHANGE_APPROVAL";
+  comment_type: "COMMENT" | "REVISION_REQUEST" | "HOLD_NOTICE" | "CHANGE_APPROVAL" | "RESUME_NOTICE";
   created_at: string;
 }
 
@@ -210,8 +211,12 @@ export interface ChatMessageEntity {
   author_name: string;
   author_role: string;
   message: string;
-  comment_type: string;
+  comment_type?: string;
   created_at: string;
+  sender_id?: string;
+  sender_name?: string;
+  sender_role?: string;
+  timestamp?: string;
 }
 
 export interface DbState {
@@ -770,9 +775,26 @@ export const db = {
 
   // Contracts
   getContractById(id: string): ContractEntity | undefined {
+    if (!id) return undefined;
     const state = loadDb();
+    // 1. Exact contract id match
     for (const p of state.projects) {
       const c = p.contracts?.find((item) => item.id === id);
+      if (c) return c;
+    }
+    // 2. Direct project id match
+    const directProj = state.projects.find((p) => p.id === id);
+    if (directProj?.contracts && directProj.contracts.length > 0) {
+      return directProj.contracts[directProj.contracts.length - 1];
+    }
+    // 3. Substring / normalized match (e.g. "contract-proj-..." vs "proj-...")
+    for (const p of state.projects) {
+      if (id.includes(p.id) || p.id.includes(id)) {
+        if (p.contracts && p.contracts.length > 0) {
+          return p.contracts[p.contracts.length - 1];
+        }
+      }
+      const c = p.contracts?.find((item) => item.id.includes(id) || id.includes(item.id));
       if (c) return c;
     }
     return undefined;
@@ -810,7 +832,9 @@ export const db = {
   },
 
   updateContract(id: string, updates: Partial<ContractEntity>): ContractEntity | undefined {
+    if (!id) return undefined;
     const state = loadDb();
+    // 1. Exact contract id match
     for (const p of state.projects) {
       if (!p.contracts) continue;
       const idx = p.contracts.findIndex((item) => item.id === id);
@@ -818,6 +842,26 @@ export const db = {
         p.contracts[idx] = { ...p.contracts[idx], ...updates };
         saveDb(state);
         return p.contracts[idx];
+      }
+    }
+    // 2. Direct project id match
+    for (const p of state.projects) {
+      if (p.id === id && p.contracts && p.contracts.length > 0) {
+        const idx = p.contracts.length - 1;
+        p.contracts[idx] = { ...p.contracts[idx], ...updates };
+        saveDb(state);
+        return p.contracts[idx];
+      }
+    }
+    // 3. Substring match
+    for (const p of state.projects) {
+      if (p.id.includes(id) || id.includes(p.id)) {
+        if (p.contracts && p.contracts.length > 0) {
+          const idx = p.contracts.length - 1;
+          p.contracts[idx] = { ...p.contracts[idx], ...updates };
+          saveDb(state);
+          return p.contracts[idx];
+        }
       }
     }
     return undefined;
@@ -983,11 +1027,25 @@ export const db = {
     return loadDb().chatMessages.filter((m) => m.project_id === projectId);
   },
 
-  addChatMessage(msg: ChatMessageEntity): ChatMessageEntity {
+  addChatMessage(msg: Partial<ChatMessageEntity> & { project_id: string; message: string }): ChatMessageEntity {
     const state = loadDb();
-    state.chatMessages.push(msg);
+    const normalized: ChatMessageEntity = {
+      id: msg.id || `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      project_id: msg.project_id,
+      author_id: msg.author_id || msg.sender_id || "system",
+      author_name: msg.author_name || msg.sender_name || "System",
+      author_role: msg.author_role || msg.sender_role || "system",
+      message: msg.message,
+      comment_type: msg.comment_type || "chat",
+      created_at: msg.created_at || msg.timestamp || new Date().toISOString(),
+      sender_id: msg.sender_id || msg.author_id || "system",
+      sender_name: msg.sender_name || msg.author_name || "System",
+      sender_role: msg.sender_role || msg.author_role || "system",
+      timestamp: msg.timestamp || msg.created_at || new Date().toISOString(),
+    };
+    state.chatMessages.push(normalized);
     saveDb(state);
-    return msg;
+    return normalized;
   },
 
   // Demo store bug simulation

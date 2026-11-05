@@ -756,7 +756,15 @@ ${description || title}`,
 
   // 9. Contracts: AI Edit: /api/contracts/[id]/ai-edit
   if (slug[0] === "contracts" && slug.length === 3 && slug[2] === "ai-edit") {
-    return json(aiEditContract(slug[1], body.instruction || "Revise contract clauses"));
+    try {
+      const contractOrProjectId = slug[1] || body.contract_id || body.project_id;
+      const instruction = body.instruction || body.message || "Revise contract clauses";
+      const result = aiEditContract(contractOrProjectId, instruction);
+      return json(result);
+    } catch (err: any) {
+      console.error("AI edit contract error:", err);
+      return badRequest(err.message || "Failed to revise agreement with AI", 400);
+    }
   }
 
   // 10. Contracts: Accept: /api/contracts/[id]/accept
@@ -773,80 +781,148 @@ ${description || title}`,
   // 11. Contracts: Hold: /api/contracts/[id]/hold
   if (slug[0] === "contracts" && slug.length === 3 && slug[2] === "hold") {
     const contractOrProjectId = slug[1];
+    const holdReason = body.reason || "Counterparty requested revision hold.";
+    const actorId = url.searchParams.get("user_id") || body.user_id || "client";
+    const actorRole = url.searchParams.get("role") || body.role || "client";
+    const actorUser = db.getUserById(actorId);
+    const actorName = actorUser?.name || (actorRole === "client" ? "Client" : "Contractor");
+
     let updated = db.updateContract(contractOrProjectId, {
       is_on_hold: true,
-      hold_reason: body.reason || "Counterparty requested revision hold.",
+      hold_reason: holdReason,
       status: "ON_HOLD",
     });
 
     const projects = db.getProjects();
-    for (const p of projects) {
-      if (p.id === contractOrProjectId || p.contracts?.some((c) => c.id === contractOrProjectId)) {
-        if (!updated) {
-          if (p.contracts && p.contracts.length > 0) {
-            updated = db.updateContract(p.contracts[p.contracts.length - 1].id, {
-              is_on_hold: true,
-              hold_reason: body.reason || "Counterparty requested revision hold.",
-              status: "ON_HOLD",
-            });
-          } else {
-            updated = db.createContract({
-              id: `contract-${p.id}`,
-              project_id: p.id,
-              version: 1,
-              content_markdown: `# MASTER SERVICES & MILESTONE ESCROW AGREEMENT\n\n**Project:** ${p.title}\n**Budget:** $${p.budget} USD\n\n${p.description}`,
-              status: "ON_HOLD",
-              is_on_hold: true,
-              hold_reason: body.reason || "Counterparty requested revision hold.",
-              created_at: new Date().toISOString(),
-            });
-          }
-        }
-        db.updateProject(p.id, { status: "DRAFT" });
-        recordAuditEvent({
-          projectId: p.id,
-          action: "CONTRACT_PLACED_ON_HOLD",
-          actorId: url.searchParams.get("user_id") || body.user_id || "client",
-          actorRole: url.searchParams.get("role") || body.role || "client",
-          details: { contract_id: contractOrProjectId, reason: body.reason },
-        });
-        break;
-      }
+    let targetProject = projects.find((p) => p.id === contractOrProjectId || p.contracts?.some((c) => c.id === contractOrProjectId));
+    if (!targetProject) {
+      targetProject = projects.find((p) => contractOrProjectId.includes(p.id) || p.id.includes(contractOrProjectId));
     }
 
-    return json(updated || { id: contractOrProjectId, is_on_hold: true, status: "ON_HOLD", hold_reason: body.reason });
+    if (targetProject) {
+      if (!updated) {
+        if (targetProject.contracts && targetProject.contracts.length > 0) {
+          updated = db.updateContract(targetProject.contracts[targetProject.contracts.length - 1].id, {
+            is_on_hold: true,
+            hold_reason: holdReason,
+            status: "ON_HOLD",
+          });
+        } else {
+          updated = db.createContract({
+            id: `contract-${targetProject.id}-v1`,
+            project_id: targetProject.id,
+            version: 1,
+            title: `${targetProject.title} - Master Agreement`,
+            content_markdown: `# MASTER SERVICES & MILESTONE ESCROW AGREEMENT\n\n**Project:** ${targetProject.title}\n**Budget:** $${targetProject.budget} USD\n\n${targetProject.description}`,
+            status: "ON_HOLD",
+            is_on_hold: true,
+            hold_reason: holdReason,
+            created_at: new Date().toISOString(),
+          });
+        }
+      }
+
+      // Update project status to indicate hold
+      db.updateProject(targetProject.id, { status: "CONTRACT_PENDING" });
+
+      // 1. Add contract comment so it shows in Agreement Negotiation thread
+      db.addContractComment({
+        id: `cm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        contract_id: updated?.id || `contract-${targetProject.id}`,
+        project_id: targetProject.id,
+        author_id: actorId,
+        author_name: actorName,
+        author_role: (actorRole === "client" || actorRole === "freelancer" || actorRole === "admin" || actorRole === "ai" ? actorRole : "client") as any,
+        comment_type: "HOLD_NOTICE",
+        message: `⚠️ Project placed on hold. Change Request: "${holdReason}"`,
+        created_at: new Date().toISOString(),
+      });
+
+      // 2. Add real chat message so freelancer sees it immediately on Chat tab!
+      db.addChatMessage({
+        id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        project_id: targetProject.id,
+        author_id: actorId,
+        author_name: actorName,
+        author_role: actorRole,
+        message: `⚠️ CHANGE REQUEST SUBMITTED: The agreement has been placed on hold with feedback:\n\n"${holdReason}"\n\nPlease revise the agreement clauses and schedule to proceed.`,
+        created_at: new Date().toISOString(),
+      });
+
+      recordAuditEvent({
+        projectId: targetProject.id,
+        action: "CONTRACT_PLACED_ON_HOLD",
+        actorId,
+        actorRole,
+        details: { contract_id: contractOrProjectId, reason: holdReason },
+      });
+    }
+
+    return json(updated || { id: contractOrProjectId, is_on_hold: true, status: "ON_HOLD", hold_reason: holdReason });
   }
 
   // 12. Contracts: Resume: /api/contracts/[id]/resume
   if (slug[0] === "contracts" && slug.length === 3 && slug[2] === "resume") {
     const contractOrProjectId = slug[1];
+    const actorId = url.searchParams.get("user_id") || body.user_id || "freelancer";
+    const actorRole = url.searchParams.get("role") || body.role || "freelancer";
+    const actorUser = db.getUserById(actorId);
+    const actorName = actorUser?.name || (actorRole === "freelancer" ? "Contractor" : "Client");
+
     let updated = db.updateContract(contractOrProjectId, {
       is_on_hold: false,
       hold_reason: undefined,
-      status: "ACCEPTED",
+      status: "PENDING_APPROVAL",
     });
 
-    for (const p of db.getProjects()) {
-      if (p.id === contractOrProjectId || p.contracts?.some((c) => c.id === contractOrProjectId)) {
-        if (!updated && p.contracts && p.contracts.length > 0) {
-          updated = db.updateContract(p.contracts[p.contracts.length - 1].id, {
-            is_on_hold: false,
-            hold_reason: undefined,
-            status: "ACCEPTED",
-          });
-        }
-        db.updateProject(p.id, { status: "IN_PROGRESS" });
-        recordAuditEvent({
-          projectId: p.id,
-          action: "CONTRACT_RESUMED",
-          actorId: url.searchParams.get("user_id") || "client",
-          actorRole: url.searchParams.get("role") || "client",
-          details: { contract_id: contractOrProjectId },
-        });
-        break;
-      }
+    const projects = db.getProjects();
+    let targetProject = projects.find((p) => p.id === contractOrProjectId || p.contracts?.some((c) => c.id === contractOrProjectId));
+    if (!targetProject) {
+      targetProject = projects.find((p) => contractOrProjectId.includes(p.id) || p.id.includes(contractOrProjectId));
     }
-    return json(updated || { id: contractOrProjectId, is_on_hold: false, status: "ACCEPTED" });
+
+    if (targetProject) {
+      if (!updated && targetProject.contracts && targetProject.contracts.length > 0) {
+        updated = db.updateContract(targetProject.contracts[targetProject.contracts.length - 1].id, {
+          is_on_hold: false,
+          hold_reason: undefined,
+          status: "PENDING_APPROVAL",
+        });
+      }
+      db.updateProject(targetProject.id, { status: "IN_PROGRESS" });
+
+      // Add comment and chat message
+      db.addContractComment({
+        id: `cm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        contract_id: updated?.id || `contract-${targetProject.id}`,
+        project_id: targetProject.id,
+        author_id: actorId,
+        author_name: actorName,
+        author_role: (actorRole === "client" || actorRole === "freelancer" || actorRole === "admin" || actorRole === "ai" ? actorRole : "freelancer") as any,
+        comment_type: "RESUME_NOTICE",
+        message: `✅ Revisions applied and hold lifted. Agreement resubmitted for mutual sign-off.`,
+        created_at: new Date().toISOString(),
+      });
+
+      db.addChatMessage({
+        id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        project_id: targetProject.id,
+        author_id: actorId,
+        author_name: actorName,
+        author_role: actorRole,
+        message: `✅ HOLD LIFTED: The contractor has updated the agreement terms and lifted the hold. Ready for client signature.`,
+        created_at: new Date().toISOString(),
+      });
+
+      recordAuditEvent({
+        projectId: targetProject.id,
+        action: "CONTRACT_RESUMED",
+        actorId,
+        actorRole,
+        details: { contract_id: contractOrProjectId },
+      });
+    }
+    return json(updated || { id: contractOrProjectId, is_on_hold: false, status: "PENDING_APPROVAL" });
   }
 
   // 13. Contracts: Comments: /api/contracts/[id]/comments

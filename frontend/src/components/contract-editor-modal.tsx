@@ -11,6 +11,7 @@ interface ContractEditorModalProps {
   contract: Contract;
   userId?: string;
   userRole?: string;
+  initialInstruction?: string;
   onSaved: (updatedContract: Contract) => void;
 }
 
@@ -20,6 +21,7 @@ export function ContractEditorModal({
   contract,
   userId,
   userRole = "freelancer",
+  initialInstruction,
   onSaved
 }: ContractEditorModalProps) {
   const [contentMarkdown, setContentMarkdown] = useState(contract.content_markdown || "");
@@ -28,9 +30,22 @@ export function ContractEditorModal({
   const [error, setError] = useState<string | null>(null);
 
   // AI Revision Assistant state
-  const [aiInstruction, setAiInstruction] = useState("");
+  const [aiInstruction, setAiInstruction] = useState(initialInstruction || contract.hold_reason || "");
   const [isAiRevising, setIsAiRevising] = useState(false);
   const [aiResult, setAiResult] = useState<ContractAIEditResult | null>(null);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      setContentMarkdown(contract.content_markdown || "");
+      if (initialInstruction) {
+        setAiInstruction(initialInstruction);
+      } else if (contract.hold_reason) {
+        setAiInstruction(contract.hold_reason);
+      }
+      setError(null);
+      setAiResult(null);
+    }
+  }, [isOpen, contract, initialInstruction]);
 
   if (!isOpen) return null;
 
@@ -162,13 +177,42 @@ export function ContractEditorModal({
           {/* Preset quick test pills */}
           <div className="flex items-center gap-2 flex-wrap text-[11px] text-slate-500 pt-0.5">
             <span className="font-medium text-slate-600">Quick suggestions:</span>
+            {contract.hold_reason && (
+              <button
+                type="button"
+                onClick={() => {
+                  setAiInstruction(contract.hold_reason || "");
+                  handleAiRevise(contract.hold_reason);
+                }}
+                disabled={isAiRevising}
+                className="px-2.5 py-0.5 rounded-full bg-amber-100 hover:bg-amber-200 border border-amber-300 text-amber-900 font-semibold transition-colors cursor-pointer flex items-center gap-1"
+              >
+                <span>Apply Client Hold Request: &ldquo;{contract.hold_reason.slice(0, 45)}...&rdquo;</span>
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => handleAiRevise("Client said it must be 1000 instead of 1500, adjust milestones")}
+              onClick={() => {
+                const text = "Client requested to increase days for testing and review";
+                setAiInstruction(text);
+                handleAiRevise(text);
+              }}
               disabled={isAiRevising}
               className="px-2 py-0.5 rounded-full bg-white hover:bg-slate-200 border border-slate-200 text-slate-700 transition-colors cursor-pointer"
             >
-              &ldquo;Client said it must be 1000 instead of 1500&rdquo;
+              &ldquo;Increase delivery timeline by 14 days&rdquo;
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const text = "Adjust budget breakdown to 20% kickoff advance and 80% escrow";
+                setAiInstruction(text);
+                handleAiRevise(text);
+              }}
+              disabled={isAiRevising}
+              className="px-2 py-0.5 rounded-full bg-white hover:bg-slate-200 border border-slate-200 text-slate-700 transition-colors cursor-pointer"
+            >
+              &ldquo;20% Advance / 80% Escrow&rdquo;
             </button>
             <button
               type="button"
