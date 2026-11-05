@@ -151,13 +151,16 @@ function SignupForm() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              <label htmlFor="signup-name" className="block text-xs font-semibold text-slate-700 mb-1.5">
                 Full Name
               </label>
               <div className="relative">
                 <UserIcon className="h-4 w-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
                 <input
+                  id="signup-name"
+                  name="name"
                   type="text"
+                  autoComplete="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g. Jordan Hayes"
@@ -168,13 +171,16 @@ function SignupForm() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              <label htmlFor="signup-email" className="block text-xs font-semibold text-slate-700 mb-1.5">
                 Email address
               </label>
               <div className="relative">
                 <Mail className="h-4 w-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
                 <input
+                  id="signup-email"
+                  name="email"
                   type="email"
+                  autoComplete="username email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="name@company.com"
@@ -186,7 +192,7 @@ function SignupForm() {
 
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="flex items-center text-xs font-semibold text-slate-700">
+                <label htmlFor="signup-paypal-email" className="flex items-center text-xs font-semibold text-slate-700">
                   <img src="/P.png" alt="PayPal" className="h-3.5 w-auto object-contain inline-block mr-1.5" />
                   <span>PayPal Payout Email</span>
                 </label>
@@ -195,7 +201,10 @@ function SignupForm() {
               <div className="relative">
                 <Mail className="h-4 w-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
                 <input
+                  id="signup-paypal-email"
+                  name="paypalEmail"
                   type="email"
+                  autoComplete="email"
                   value={paypalEmail}
                   onChange={(e) => setPaypalEmail(e.target.value)}
                   placeholder="paypal-account@email.com"
@@ -205,13 +214,16 @@ function SignupForm() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              <label htmlFor="signup-password" className="block text-xs font-semibold text-slate-700 mb-1.5">
                 Password
               </label>
               <div className="relative">
                 <Lock className="h-4 w-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
                 <input
+                  id="signup-password"
+                  name="password"
                   type="password"
+                  autoComplete="new-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Minimum 6 characters"

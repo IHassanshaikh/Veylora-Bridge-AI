@@ -780,12 +780,32 @@ export const db = {
 
   createContract(contract: ContractEntity): ContractEntity {
     const state = loadDb();
-    const project = state.projects.find((p) => p.id === contract.project_id);
-    if (project) {
-      if (!project.contracts) project.contracts = [];
-      project.contracts.push(contract);
-      saveDb(state);
+    let project = state.projects.find((p) => p.id === contract.project_id);
+    if (!project) {
+      project = {
+        id: contract.project_id,
+        client_id: "user-client-001",
+        freelancer_id: "user-freelancer-001",
+        title: "Freelance Milestone Project",
+        description: "Milestone contract workspace",
+        category: "Web Development",
+        budget: 1000,
+        advance_amount: 250,
+        held_balance: 750,
+        advance_status: "PENDING",
+        held_balance_status: "UNFUNDED",
+        invitation_token: `invite-${Date.now()}`,
+        currency: "USD",
+        status: "IN_PROGRESS",
+        created_at: new Date().toISOString(),
+        milestones: [],
+        contracts: [],
+      };
+      state.projects.unshift(project);
     }
+    if (!project.contracts) project.contracts = [];
+    project.contracts.push(contract);
+    saveDb(state);
     return contract;
   },
 

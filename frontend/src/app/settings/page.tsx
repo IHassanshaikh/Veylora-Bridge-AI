@@ -343,11 +343,14 @@ export default function SettingsPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-black mb-1.5">
+              <label htmlFor="settings-current-password" className="block text-xs font-bold uppercase tracking-wider text-black mb-1.5">
                 Current Password
               </label>
               <input
+                id="settings-current-password"
+                name="currentPassword"
                 type="password"
+                autoComplete="current-password"
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 placeholder="••••••••••••"
@@ -356,11 +359,14 @@ export default function SettingsPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-black mb-1.5">
+              <label htmlFor="settings-new-password" className="block text-xs font-bold uppercase tracking-wider text-black mb-1.5">
                 New Password
               </label>
               <input
+                id="settings-new-password"
+                name="newPassword"
                 type="password"
+                autoComplete="new-password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="At least 6 chars"
@@ -369,11 +375,14 @@ export default function SettingsPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-black mb-1.5">
+              <label htmlFor="settings-confirm-password" className="block text-xs font-bold uppercase tracking-wider text-black mb-1.5">
                 Confirm New Password
               </label>
               <input
+                id="settings-confirm-password"
+                name="confirmPassword"
                 type="password"
+                autoComplete="new-password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Re-type new password"

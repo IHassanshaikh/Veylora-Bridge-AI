@@ -8,6 +8,7 @@ import {
   getDisputeDossier,
   recordAuditEvent,
   runVerificationSuite,
+  generateContractArchitect,
 } from "@/server/agents";
 
 // Helper to format JSON response
@@ -83,6 +84,16 @@ export async function GET(
   if (slug[0] === "contracts" && slug.length === 3 && slug[2] === "comments") {
     const comments = db.getContractComments(slug[1]);
     return json(comments);
+  }
+
+  // 5a. Latest Contract: /api/contracts/[projectId]/latest
+  if (slug[0] === "contracts" && slug.length === 3 && slug[2] === "latest") {
+    const proj = db.getProjectById(slug[1]);
+    const latestContract = proj?.contracts && proj.contracts.length > 0
+      ? proj.contracts[proj.contracts.length - 1]
+      : db.getContractById(slug[1]);
+    if (!latestContract) return badRequest("No contract found for this project", 404);
+    return json(latestContract);
   }
 
   // 6. Single Contract: /api/contracts/[id]
@@ -472,14 +483,78 @@ ${description || title}`,
     return json(newProject, 201);
   }
 
-  // 7. Contracts: Deal Guardian: /api/contracts/deal-guardian
-  if (path === "contracts/deal-guardian") {
+  // 6a. Contracts: Generate: /api/contracts/generate/[projectId]
+  if (slug[0] === "contracts" && slug[1] === "generate" && slug.length >= 3) {
+    const projectId = slug[2];
+    const project = db.getProjectById(projectId);
+
+    const title = body.project_title || body.title || project?.title || "Freelance Milestone Project";
+    const brief = body.brief || body.description || project?.description || "Deliverable specification and technical scope.";
+    const budget = Number(body.budget || project?.budget || 1000);
+    const currency = body.currency || project?.currency || "USD";
+    const timelineDays = Number(body.target_timeline_days || 14);
+
+    const generated = generateContractArchitect({
+      projectId,
+      project_title: title,
+      brief,
+      budget,
+      currency,
+      target_timeline_days: timelineDays,
+    });
+
+    if (project) {
+      db.updateProject(projectId, {
+        title,
+        description: brief,
+        budget,
+        advance_amount: generated.advanceAmount,
+        held_balance: generated.heldBalance,
+        currency,
+        milestones: generated.milestones,
+      });
+    }
+
+    const version = project?.contracts && project.contracts.length > 0
+      ? project.contracts.length + 1
+      : 1;
+
+    const contract = db.createContract({
+      id: `contract-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      project_id: projectId,
+      version,
+      content_markdown: generated.markdownContent,
+      content_json: {
+        title,
+        summary: brief,
+        budget,
+        currency,
+        target_days: timelineDays,
+        milestones: generated.milestones,
+      },
+      status: "PENDING_APPROVAL",
+      created_at: new Date().toISOString(),
+    });
+
+    recordAuditEvent({
+      projectId,
+      action: "CONTRACT_GENERATED_BY_AI",
+      actorId: body.user_id || "ai-architect",
+      actorRole: "ai",
+      details: { version, title, budget, milestones_count: generated.milestones.length },
+    });
+
+    return json(contract, 201);
+  }
+
+  // 7. Contracts: Deal Guardian: /api/contracts/deal-guardian or /api/contracts/deal-guardian/analyze
+  if (path === "contracts/deal-guardian" || path === "contracts/deal-guardian/analyze") {
     return json(analyzeDealGuardian(body));
   }
 
-  // 8. Contracts: Scope Analyst: /api/contracts/scope-analyst
-  if (path === "contracts/scope-analyst") {
-    return json(analyzeScopeChange(body.project_id, body.message));
+  // 8. Contracts: Scope Analyst: /api/contracts/scope-analyst or /api/contracts/scope-change/analyze
+  if (path === "contracts/scope-analyst" || path === "contracts/scope-change/analyze" || path === "contracts/scope-change") {
+    return json(analyzeScopeChange(body.project_id, body.message_or_request || body.message || ""));
   }
 
   // 9. Contracts: AI Edit: /api/contracts/[id]/ai-edit

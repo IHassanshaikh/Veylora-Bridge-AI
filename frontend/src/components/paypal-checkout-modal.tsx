@@ -504,7 +504,10 @@ export function PayPalCheckoutModal({
                   {/* Card Number with auto-spacing */}
                   <div className="rounded-md border border-slate-300 px-3.5 py-3 bg-white focus-within:border-[#0070ba] focus-within:ring-1 focus-within:ring-[#0070ba] transition-all">
                     <input
+                      id="checkout-card-number"
+                      name="cardNumber"
                       type="text"
+                      autoComplete="cc-number"
                       value={cardNumber}
                       onChange={(e) => handleCardNumberChange(e.target.value)}
                       placeholder="Card number (e.g. 4000 1234 5678 9010)"
@@ -519,7 +522,10 @@ export function PayPalCheckoutModal({
                 <div className="grid grid-cols-2 gap-2">
                   <div className="rounded-md border border-slate-300 px-3.5 py-3 bg-white focus-within:border-[#0070ba] focus-within:ring-1 focus-within:ring-[#0070ba] transition-all">
                     <input
+                      id="checkout-card-exp"
+                      name="cardExp"
                       type="text"
+                      autoComplete="cc-exp"
                       value={cardExp}
                       onChange={(e) => handleCardExpChange(e.target.value)}
                       placeholder="MM / YY"
@@ -530,7 +536,10 @@ export function PayPalCheckoutModal({
                   </div>
                   <div className="rounded-md border border-slate-300 px-3.5 py-3 bg-white focus-within:border-[#0070ba] focus-within:ring-1 focus-within:ring-[#0070ba] transition-all flex items-center justify-between">
                     <input
+                      id="checkout-card-cvv"
+                      name="cardCvv"
                       type="password"
+                      autoComplete="cc-csc"
                       value={cardCvv}
                       onChange={(e) => handleCardCvvChange(e.target.value)}
                       placeholder="CVV"

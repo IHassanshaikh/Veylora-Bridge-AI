@@ -101,7 +101,10 @@ function LoginForm() {
           <div className="relative">
             <Mail className="h-4 w-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
             <input
+              id="login-email"
+              name="email"
               type="email"
+              autoComplete="username email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="alex@acmestudio.io"
@@ -113,7 +116,7 @@ function LoginForm() {
 
         <div>
           <div className="flex items-center justify-between mb-1.5">
-            <label className="block text-xs font-semibold text-slate-700">
+            <label htmlFor="login-password" className="block text-xs font-semibold text-slate-700">
               Password
             </label>
             <span className="text-[11px] text-[#0070ba] font-medium">Demo: Password123!</span>
@@ -121,7 +124,10 @@ function LoginForm() {
           <div className="relative">
             <Lock className="h-4 w-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
             <input
+              id="login-password"
+              name="password"
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••••••"
