@@ -64,15 +64,28 @@ export default function NewProjectPage() {
       });
       setGeneratedContract(contract);
 
-      // 3. Issue invitation link and email payload
-      if (inviteeEmail) {
+      // 3. Issue invitation link and email payload (always generate so user has a shareable link)
+      try {
         const inv = await api.createInvitation({
           project_id: project.id,
           inviter_id: currentUserId,
           role: inviteRole,
-          invitee_email: inviteeEmail
+          invitee_email: inviteeEmail || undefined
         });
         setInvitationData(inv);
+      } catch (e) {
+        console.warn("Could not create invitation, fallback to project token:", e);
+        if (project.invitation_token) {
+          setInvitationData({
+            token: project.invitation_token,
+            invite_url: `/invite/${project.invitation_token}`,
+            delivery_status: "READY TO SHARE",
+            email_preview: {
+              to: inviteeEmail || "Counterparty",
+              subject: `Invitation to collaborate on '${project.title}' on Veylora Bridge AI`
+            }
+          });
+        }
       }
     } catch (err: any) {
       setError(err.message || "Failed to generate contract");
@@ -82,8 +95,10 @@ export default function NewProjectPage() {
   };
 
   const copyInviteLink = () => {
-    if (!invitationData?.invite_url) return;
-    const fullUrl = `${window.location.origin}${invitationData.invite_url}`;
+    const token = invitationData?.token || invitationData?.invite_url?.replace("/invite/", "") || createdProject?.invitation_token;
+    const invitePath = invitationData?.invite_url || (token ? `/invite/${token}` : null);
+    if (!invitePath) return;
+    const fullUrl = `${window.location.origin}${invitePath}`;
     navigator.clipboard.writeText(fullUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -299,27 +314,34 @@ export default function NewProjectPage() {
             </button>
           </div>
 
-          {/* Invitation Email Preview Banner */}
-          {invitationData && (
+          {/* Invitation Link & Share Banner */}
+          {(invitationData || createdProject?.invitation_token) && (
             <div className="payflow-card p-6 bg-slate-900 text-white space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Mail className="h-4 w-4 text-blue-400" />
                   <span className="text-xs font-bold uppercase tracking-wider text-blue-300">
-                    Invitation Sent to {invitationData.email_preview?.to}
+                    {invitationData?.email_preview?.to && invitationData.email_preview.to !== "Counterparty"
+                      ? `Invitation Sent to ${invitationData.email_preview.to}`
+                      : "Counterparty Invitation Link"}
                   </span>
                 </div>
                 <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                  {invitationData.delivery_status}
+                  {invitationData?.delivery_status || "READY TO SHARE"}
                 </span>
               </div>
-              <div className="p-3 rounded-xl bg-slate-950 font-mono text-xs text-slate-300 flex items-center justify-between gap-3 overflow-x-auto">
-                <span className="truncate">{invitationData.email_preview?.subject}</span>
+              <div className="p-3 rounded-xl bg-slate-950 font-mono text-xs text-blue-200 flex items-center justify-between gap-3 overflow-x-auto border border-slate-800">
+                <span className="truncate select-all text-xs text-slate-100 font-semibold tracking-wide">
+                  {typeof window !== "undefined"
+                    ? `${window.location.origin}${invitationData?.invite_url || `/invite/${invitationData?.token || createdProject?.invitation_token}`}`
+                    : invitationData?.invite_url || `/invite/${invitationData?.token || createdProject?.invitation_token}`}
+                </span>
                 <button
+                  type="button"
                   onClick={copyInviteLink}
-                  className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold shrink-0 flex items-center gap-1"
+                  className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold shrink-0 flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs active:scale-95"
                 >
-                  <Copy className="h-3 w-3" />
+                  <Copy className="h-3.5 w-3.5" />
                   <span>{copied ? "Copied!" : "Copy Link"}</span>
                 </button>
               </div>

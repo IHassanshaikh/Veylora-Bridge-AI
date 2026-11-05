@@ -835,18 +835,36 @@ ${description || title}`,
   if (path === "invitations") {
     const { project_id, inviter_id, invitee_email, role } = body;
     const token = `inv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const project = db.getProjectById(project_id);
     const inv = db.createInvitation({
       id: `inv-${Date.now()}`,
       project_id,
       inviter_id: inviter_id || "user-client-001",
-      invitee_email,
+      invitee_email: invitee_email || "",
       role: role || "freelancer",
       token,
       status: "PENDING",
       expires_at: new Date(Date.now() + 7 * 86400000).toISOString(),
       created_at: new Date().toISOString(),
     });
-    return json(inv, 201);
+
+    if (project) {
+      db.updateProject(project_id, { invitation_token: token });
+    }
+
+    const invite_url = `/invite/${token}`;
+    const email_preview = {
+      to: invitee_email || "counterparty@example.com",
+      subject: `Invitation to collaborate on '${project?.title || "Milestone Agreement"}' on Veylora Bridge AI`,
+      body: `You have been invited to review and accept the milestone contract for '${project?.title || "Project"}' on Veylora Bridge AI. View agreement: ${invite_url}`,
+    };
+
+    return json({
+      ...inv,
+      invite_url,
+      delivery_status: invitee_email ? "SIMULATED_DISPATCH" : "READY_TO_SHARE",
+      email_preview,
+    }, 201);
   }
 
   // 25. Invitations: Accept: /api/invitations/[token]/accept

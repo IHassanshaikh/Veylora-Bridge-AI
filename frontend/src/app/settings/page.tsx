@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { 
-  User, Mail, Lock, CreditCard, Camera, CheckCircle2, 
+import {
+  User, Mail, Lock, CreditCard, Camera, CheckCircle2,
   AlertCircle, RefreshCw, ArrowRight, ShieldCheck, ShieldAlert
 } from "lucide-react";
 import Link from "next/link";
@@ -158,7 +158,7 @@ export default function SettingsPage() {
               {isVerified ? "IDENTITY VERIFIED (KYC APPROVED)" : "IDENTITY VERIFICATION REQUIRED"}
             </div>
             <div className="text-xs font-semibold text-slate-600">
-              {isVerified 
+              {isVerified
                 ? "Your official government ID is on file and compliant with PayPal Payouts."
                 : "Submit your government ID card and photo to unlock escrow releases."}
             </div>
