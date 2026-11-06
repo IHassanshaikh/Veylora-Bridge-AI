@@ -63,6 +63,17 @@ export function ContractEditorModal({
       setContentMarkdown(res.revised_markdown);
       setAiResult(res);
       setAiInstruction("");
+
+      // Immediately notify parent so the project workspace updates in real-time
+      if (onSaved) {
+        onSaved({
+          ...contract,
+          version: (contract.version || 1) + 1,
+          content_markdown: res.revised_markdown,
+          is_on_hold: false,
+          hold_reason: undefined,
+        });
+      }
     } catch (err: any) {
       setError(err.message || "Failed to revise agreement with AI");
     } finally {
@@ -226,14 +237,25 @@ export function ContractEditorModal({
 
           {/* AI Extracted Financials Notification */}
           {aiResult && (
-            <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 animate-in fade-in duration-200">
-              <div className="flex items-center gap-2">
-                <Check className="h-4 w-4 text-emerald-600 shrink-0" />
-                <span>
-                  <strong>AI Extracted New Financials:</strong> Budget ${aiResult.extracted_budget.toLocaleString()} USD • Kickoff Advance ${aiResult.extracted_advance.toLocaleString()} USD • Held Escrow ${aiResult.extracted_held_balance.toLocaleString()} USD.
-                </span>
+            <div className="p-3.5 rounded-xl bg-emerald-50 border-2 border-emerald-400 text-emerald-950 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in duration-200">
+              <div className="flex items-center gap-2.5">
+                <div className="h-7 w-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                  <Check className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="font-black text-emerald-950">AI Revision Applied &amp; Synchronized!</div>
+                  <div className="text-[11px] text-emerald-800">
+                    Budget ${aiResult.extracted_budget.toLocaleString()} USD • Advance ${aiResult.extracted_advance.toLocaleString()} USD • Escrow ${aiResult.extracted_held_balance.toLocaleString()} USD.
+                  </div>
+                </div>
               </div>
-              <span className="text-[11px] text-emerald-700 font-medium">Click Save below to commit changes everywhere</span>
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-3.5 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shrink-0 cursor-pointer shadow-xs transition-colors"
+              >
+                Done / View Updated Workspace →
+              </button>
             </div>
           )}
         </div>

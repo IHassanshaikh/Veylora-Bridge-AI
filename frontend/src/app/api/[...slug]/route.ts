@@ -44,14 +44,17 @@ export async function OPTIONS() {
 function reconcileProjectFinancials(proj: ProjectEntity): ProjectEntity {
   if (!proj || !proj.budget) return proj;
 
-  const isLegacyFiveThousand = proj.budget === 5000 && proj.advance_amount === 1250;
-  const hasLegacyDefault =
-    isLegacyFiveThousand ||
-    (proj.advance_amount === Math.round(proj.budget * 0.25) &&
-      proj.description &&
-      /(?:20%|advance|milestone payment)/i.test(proj.description));
+  // If contract has already been revised by AI or user, NEVER overwrite its numbers!
+  const latestContract = proj.contracts?.[proj.contracts.length - 1];
+  if (latestContract && (latestContract.version > 1 || latestContract.content_markdown.includes("REVISED CLAUSE AMENDMENT"))) {
+    return proj;
+  }
 
-  if (!hasLegacyDefault && !proj.description) return proj;
+  // ONLY fix the initial legacy seed bug: $5,000 budget with old $1,250 (25%) default when description requested 20%
+  const isLegacyFiveThousand = proj.budget === 5000 && proj.advance_amount === 1250;
+  if (!isLegacyFiveThousand) {
+    return proj;
+  }
 
   const parsed = parseBriefFinancials(proj.description || "", proj.budget);
   if (parsed.advanceAmount !== proj.advance_amount || isLegacyFiveThousand) {

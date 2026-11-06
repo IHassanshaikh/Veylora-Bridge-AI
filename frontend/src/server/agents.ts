@@ -216,24 +216,77 @@ ${timelineClause}- **Adjusted Total Budget:** $${newBudget.toLocaleString()} USD
   });
 
   if (project) {
+    // Synchronize milestone amounts and timeline if changed
+    let updatedMilestones = project.milestones || [];
+    if (project.milestones && project.milestones.length > 0) {
+      const milestoneTotal = newHeld;
+      const perMilestone = Math.round(milestoneTotal / project.milestones.length);
+      updatedMilestones = project.milestones.map((m, idx) => ({
+        ...m,
+        amount: idx === project.milestones.length - 1
+          ? milestoneTotal - perMilestone * (project.milestones.length - 1)
+          : perMilestone,
+        due_date: addedDays > 0
+          ? `Extended (+${addedDays}d) / T+${(idx + 1) * 14 + addedDays} days`
+          : m.due_date,
+      }));
+    }
+
     db.updateProject(project.id, {
       budget: newBudget,
       advance_amount: newAdvance,
       held_balance: newHeld,
       status: "IN_PROGRESS",
+      milestones: updatedMilestones,
     });
 
-    // Synchronize milestone amounts if budget changed
-    if (newBudget !== currentBudget && project.milestones && project.milestones.length > 0) {
-      const milestoneTotal = newHeld;
-      const perMilestone = Math.round(milestoneTotal / project.milestones.length);
-      const updatedMilestones = project.milestones.map((m, idx) => ({
-        ...m,
-        amount: idx === project.milestones.length - 1
-          ? milestoneTotal - perMilestone * (project.milestones.length - 1)
-          : perMilestone,
-      }));
-      db.updateProject(project.id, { milestones: updatedMilestones });
+    // Synchronize invoices to reflect new budget & milestones immediately
+    const existingInvoices = db.getInvoices(project.id);
+    const hasPaid = existingInvoices.some((i) => i.status === "RELEASED");
+    if (!hasPaid) {
+      db.deleteInvoicesForProject(project.id);
+      db.createInvoice({
+        id: `inv-${project.id}-0`,
+        project_id: project.id,
+        milestone_id: null,
+        invoice_number: `INV-${project.id.toUpperCase()}-001`,
+        order_index: 0,
+        amount: newAdvance,
+        currency: project.currency || "USD",
+        title: "Upfront Kickoff Advance Deposit",
+        status: "PENDING_DEPOSIT",
+        due_date: "Immediate",
+        created_at: new Date().toISOString(),
+        paid_at: null,
+      });
+
+      updatedMilestones.forEach((m, idx) => {
+        db.createInvoice({
+          id: `inv-${project.id}-${idx + 1}`,
+          project_id: project.id,
+          milestone_id: m.id,
+          invoice_number: `INV-${project.id.toUpperCase()}-${String(idx + 2).padStart(3, "0")}`,
+          order_index: idx + 1,
+          amount: m.amount,
+          currency: project.currency || "USD",
+          title: m.title.toLowerCase().startsWith("milestone") ? m.title : `Milestone ${idx + 1}: ${m.title}`,
+          status: "PENDING_DEPOSIT",
+          due_date: m.due_date || `T+${(idx + 1) * 14} days`,
+          created_at: new Date().toISOString(),
+          paid_at: null,
+        });
+      });
+    } else {
+      existingInvoices.forEach((inv) => {
+        if (inv.status !== "RELEASED") {
+          const matchingMilestone = updatedMilestones.find((m) => m.id === inv.milestone_id);
+          if (matchingMilestone) {
+            db.updateInvoice(inv.id, { amount: matchingMilestone.amount, due_date: matchingMilestone.due_date });
+          } else if (inv.milestone_id === null) {
+            db.updateInvoice(inv.id, { amount: newAdvance });
+          }
+        }
+      });
     }
 
     // Add automated chat message

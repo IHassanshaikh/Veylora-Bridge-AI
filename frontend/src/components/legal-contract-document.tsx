@@ -362,6 +362,34 @@ export function LegalContractDocument({
               Parties retain full recourse to PayPal Resolution Center mechanisms under PayPal Buyer and Seller Protection policies.
             </p>
           </div>
+
+          {/* Section 6: Executed AI Revision Amendments & Addenda */}
+          {(contract.version > 1 || contract.content_markdown?.includes("REVISED CLAUSE AMENDMENT")) && (
+            <div className="p-5 rounded-2xl bg-amber-50/70 border-2 border-amber-400 space-y-3">
+              <div className="flex items-center justify-between pb-2 border-b border-amber-300">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-amber-700" />
+                  <h3 className="font-black text-sm sm:text-base text-amber-950 uppercase tracking-tight">
+                    SECTION 6: EXECUTED AMENDMENTS &amp; REVISED COVENANTS (VERSION {contract.version})
+                  </h3>
+                </div>
+                <span className="text-[10px] font-black uppercase text-amber-950 bg-amber-200 px-2.5 py-0.5 rounded border border-amber-300">
+                  Certified AI Oracle Addendum
+                </span>
+              </div>
+
+              <div className="text-xs text-slate-900 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-xl border border-amber-200 font-sans shadow-2xs">
+                {contract.content_markdown.includes("---")
+                  ? contract.content_markdown.split("---").slice(1).join("\n---\n").trim()
+                  : contract.content_markdown}
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] text-amber-950 font-bold pt-1">
+                <span>Certified by Veylora Contract Architect AI Oracle</span>
+                <span>All financial milestones &amp; escrow gates synchronized across platform</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ======================================================== */}

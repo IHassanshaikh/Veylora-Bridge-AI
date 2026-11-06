@@ -378,7 +378,10 @@ function ProjectRoomContent() {
     ?.filter(m => m.status === "PAID")
     .reduce((s, m) => s + m.amount, 0) || 0;
 
-  const isLegacyFiveThousand = project.budget === 5000 && project.advance_amount === 1250;
+  const isLegacyFiveThousand =
+    project.budget === 5000 &&
+    project.advance_amount === 1250 &&
+    !latestContract?.content_markdown?.includes("REVISED CLAUSE AMENDMENT");
   const displayAdvance = isLegacyFiveThousand ? 1000 : project.advance_amount;
   const displayHeld = isLegacyFiveThousand ? 4000 : project.held_balance;
 
