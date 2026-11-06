@@ -157,36 +157,73 @@ export function aiEditContract(contractId: string, instruction: string) {
 
   // 2. Budget and Advance Parsing
   const currentBudget = project?.budget || 1000;
-  let newBudget = currentBudget;
+  const currentAdvance = project?.advance_amount || Math.round(currentBudget * 0.20);
 
-  const matchDollarBudget = instruction.match(/\$\s*(\d[\d,]*)/) || instruction.match(/(\d[\d,]*)\s*(?:usd|dollars)/i);
-  if (matchDollarBudget) {
-    const parsed = parseInt(matchDollarBudget[1].replace(/,/g, ""), 10);
-    if (parsed >= 50) newBudget = parsed;
+  // A. Check for Advance Percentage (e.g. "10% advance", "advance 25%", "20% upfront")
+  const advPctMatch = instruction.match(/(\d+)\s*%\s*(?:advance|upfront|kickoff|deposit)/i) ||
+                      instruction.match(/(?:advance|upfront|kickoff|deposit)[\s\S]{0,15}?(\d+)\s*%/i);
+  const explicitAdvPct = advPctMatch ? parseInt(advPctMatch[1], 10) : null;
+
+  // B. Check for Explicit Advance Dollar Amount (e.g. "make advance $500", "advance 500$", "set advance to 500")
+  let explicitAdvance: number | null = null;
+  if (explicitAdvPct === null) {
+    const advDollarMatch = instruction.match(/(?:advance|upfront|kickoff|deposit)[\s\S]{0,25}?(?:\$|usd)?\s*(\d[\d,]*)(?!\s*%)\s*(?:\$|usd)?/i) ||
+                           instruction.match(/(?:\$|usd)?\s*(\d[\d,]*)(?!\s*%)\s*(?:\$|usd)?[\s\S]{0,15}?(?:advance|upfront|kickoff|deposit)/i);
+    if (advDollarMatch && advDollarMatch[1]) {
+      const parsed = parseInt(advDollarMatch[1].replace(/,/g, ""), 10);
+      if (parsed > 0) explicitAdvance = parsed;
+    }
+  }
+
+  // C. Check for Discount / Deduction (e.g. "can i get 100$ off", "$200 discount", "reduce price by 100")
+  const discountMatch = instruction.match(/(?:discount|off|reduce\s+by|decrease\s+by|cut\s+by|less)\s*(?:\$|usd)?\s*(\d[\d,]*)\s*(?:\$|usd)?/i) ||
+                        instruction.match(/(?:\$|usd)?\s*(\d[\d,]*)\s*(?:\$|usd)?\s*(?:off|discount|less|reduction)/i);
+  const discount = discountMatch && discountMatch[1] ? parseInt(discountMatch[1].replace(/,/g, ""), 10) : 0;
+
+  // D. Check for Explicit Total Budget (e.g. "total budget 4000$", "make total $4500", "budget 4500$")
+  let explicitBudget: number | null = null;
+  const totalMatch = instruction.match(/(?:total\s+budget|total\s+contract|total\s+value|total\s+price|entire\s+budget|full\s+budget|overall\s+budget|total)\s*(?:is|to|=|:)?\s*(?:\$|usd)?\s*(\d[\d,]*)\s*(?:\$|usd)?/i) ||
+                     instruction.match(/(?:\$|usd)?\s*(\d[\d,]*)\s*(?:\$|usd)?\s*(?:total\s+budget|total\s+contract|total\s+value|total\s+price|in\s+total)/i) ||
+                     instruction.match(/(?:budget|contract\s+value|project\s+price)\s*(?:is|to|=|:)?\s*(?:\$|usd)?\s*(\d[\d,]*)\s*(?:\$|usd)?/i);
+
+  if (totalMatch && totalMatch[1]) {
+    const parsed = parseInt(totalMatch[1].replace(/,/g, ""), 10);
+    if (parsed >= 50) explicitBudget = parsed;
+  } else if (discount > 0) {
+    explicitBudget = Math.max(100, currentBudget - discount);
+  } else if (explicitAdvance === null && explicitAdvPct === null) {
+    // Only parse a generic standalone dollar amount if NO advance was specified!
+    const genMatch = instruction.match(/(?:\$|usd)\s*(\d[\d,]*)|(\d[\d,]*)\s*(?:\$|usd|dollars)/i);
+    if (genMatch) {
+      const valStr = genMatch[1] || genMatch[2];
+      const parsed = parseInt(valStr.replace(/,/g, ""), 10);
+      if (parsed >= 50) explicitBudget = parsed;
+    }
+  }
+
+  // Final Budget
+  let newBudget = explicitBudget !== null ? explicitBudget : currentBudget;
+
+  // Final Advance & Held
+  let newAdvance: number;
+  let advanceRatio: number;
+
+  if (explicitAdvance !== null) {
+    newAdvance = explicitAdvance;
+    advanceRatio = newAdvance / newBudget;
+  } else if (explicitAdvPct !== null) {
+    advanceRatio = explicitAdvPct / 100.0;
+    newAdvance = Math.round(newBudget * advanceRatio);
   } else {
-    const hasBudgetKeyword = /budget|price|cost|total\s+value|pay/i.test(instruction);
-    if (hasBudgetKeyword) {
-      const matchNum = instruction.match(/(\d[\d,]+)/);
-      if (matchNum) {
-        const parsed = parseInt(matchNum[1].replace(/,/g, ""), 10);
-        if (parsed >= 50) newBudget = parsed;
-      }
-    }
+    advanceRatio = currentAdvance / currentBudget;
+    newAdvance = Math.round(newBudget * advanceRatio);
   }
 
-  let advanceRatio = (project?.advance_amount && project?.budget)
-    ? (project.advance_amount / project.budget)
-    : 0.20;
-
-  const matchAdvancePct = instruction.match(/(\d+)\s*%\s*(?:advance|upfront|kickoff)/i);
-  if (matchAdvancePct) {
-    const pct = parseInt(matchAdvancePct[1], 10);
-    if (pct > 0 && pct <= 100) {
-      advanceRatio = pct / 100;
-    }
+  // Guard against advance exceeding budget
+  if (newAdvance > newBudget) {
+    newBudget = newAdvance;
   }
 
-  const newAdvance = Math.round(newBudget * advanceRatio);
   const newHeld = newBudget - newAdvance;
   const newVersion = (contract.version || 1) + 1;
   const todayStr = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });

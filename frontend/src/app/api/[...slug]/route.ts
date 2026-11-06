@@ -333,11 +333,13 @@ export async function GET(
       let invoices = db.getInvoices(projectId);
       const project = db.getProjectById(projectId);
 
-      // Rebalance invoices if project budget was revised and no longer matches total invoice scope
+      // Rebalance invoices if project budget was revised and no longer matches total invoice scope OR if advance amount was changed
       if (project && invoices.length > 0) {
         const totalInvoiceAmount = invoices.reduce((sum, inv) => sum + inv.amount, 0);
+        const advanceInvoice = invoices.find((i) => i.milestone_id === null || i.order_index === 0);
+        const advanceMismatch = advanceInvoice && advanceInvoice.amount !== project.advance_amount;
         const hasPaid = invoices.some((i) => i.status === "RELEASED");
-        if (totalInvoiceAmount !== project.budget) {
+        if (totalInvoiceAmount !== project.budget || advanceMismatch) {
           if (!hasPaid) {
             db.deleteInvoicesForProject(projectId);
             invoices = [];
