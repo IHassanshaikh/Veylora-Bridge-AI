@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { Project, Contract, Milestone } from "@/lib/api";
+import { FormattedMarkdown } from "@/components/formatted-markdown";
 import { 
   FileText, 
   Printer, 
@@ -378,10 +379,14 @@ export function LegalContractDocument({
                 </span>
               </div>
 
-              <div className="text-xs text-slate-900 leading-relaxed whitespace-pre-wrap bg-white p-4 rounded-xl border border-amber-200 font-sans shadow-2xs">
-                {contract.content_markdown.includes("---")
-                  ? contract.content_markdown.split("---").slice(1).join("\n---\n").trim()
-                  : contract.content_markdown}
+              <div className="bg-white p-5 rounded-xl border border-amber-200 shadow-2xs">
+                <FormattedMarkdown
+                  content={
+                    contract.content_markdown.includes("---")
+                      ? contract.content_markdown.split("---").slice(1).join("\n---\n").trim()
+                      : contract.content_markdown
+                  }
+                />
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] text-amber-950 font-bold pt-1">

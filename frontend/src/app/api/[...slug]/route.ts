@@ -238,8 +238,12 @@ export async function GET(
     return json(v);
   }
 
-  // 9. Disputes: /api/disputes
-  if (path === "disputes") {
+  // 9. Disputes: /api/disputes or /api/disputes/milestone/[id]
+  if (slug[0] === "disputes") {
+    if (slug.length === 3 && slug[1] === "milestone") {
+      const d = db.getDisputeByMilestoneId(slug[2]);
+      return json(d || null);
+    }
     const milestoneId = url.searchParams.get("milestone_id");
     if (milestoneId) {
       const d = db.getDisputeByMilestoneId(milestoneId);
@@ -327,6 +331,34 @@ export async function GET(
     const projectId = slug.length >= 3 && slug[1] === "projects" ? slug[2] : slug[1];
     if (projectId) {
       let invoices = db.getInvoices(projectId);
+      const project = db.getProjectById(projectId);
+
+      // Rebalance invoices if project budget was revised and no longer matches total invoice scope
+      if (project && invoices.length > 0) {
+        const totalInvoiceAmount = invoices.reduce((sum, inv) => sum + inv.amount, 0);
+        const hasPaid = invoices.some((i) => i.status === "RELEASED");
+        if (totalInvoiceAmount !== project.budget) {
+          if (!hasPaid) {
+            db.deleteInvoicesForProject(projectId);
+            invoices = [];
+          } else {
+            const paidSum = invoices.filter((i) => i.status === "RELEASED").reduce((s, i) => s + i.amount, 0);
+            const unpaidInvoices = invoices.filter((i) => i.status !== "RELEASED");
+            if (unpaidInvoices.length > 0) {
+              const remainingBudget = Math.max(0, project.budget - paidSum);
+              const perInv = Math.round(remainingBudget / unpaidInvoices.length);
+              unpaidInvoices.forEach((inv, idx) => {
+                const amt = idx === unpaidInvoices.length - 1
+                  ? remainingBudget - perInv * (unpaidInvoices.length - 1)
+                  : perInv;
+                db.updateInvoice(inv.id, { amount: amt });
+              });
+              invoices = db.getInvoices(projectId);
+            }
+          }
+        }
+      }
+
       if (invoices.length === 0) {
         const project = db.getProjectById(projectId);
         if (project) {
@@ -1046,8 +1078,8 @@ ${description || title}`,
     return json(run);
   }
 
-  // 18. Payments: Advance Order: /api/payments/advance-order
-  if (path === "payments/advance-order") {
+  // 18. Payments: Advance Order: /api/payments/advance/create-order or /api/payments/advance-order
+  if (path === "payments/advance-order" || path === "payments/advance/create-order" || path === "payments/advance/order") {
     const { project_id, payer_id } = body;
     const project = db.getProjectById(project_id);
     if (!project) return badRequest("Project not found", 404);
@@ -1067,8 +1099,8 @@ ${description || title}`,
     });
   }
 
-  // 19. Payments: Capture Advance: /api/payments/capture-advance
-  if (path === "payments/capture-advance") {
+  // 19. Payments: Capture Advance: /api/payments/advance/capture-order or /api/payments/capture-advance
+  if (path === "payments/capture-advance" || path === "payments/advance/capture-order" || path === "payments/advance/capture") {
     const { project_id, paypal_order_id } = body;
     const project = db.getProjectById(project_id);
     if (!project) return badRequest("Project not found", 404);
@@ -1079,6 +1111,13 @@ ${description || title}`,
       advance_paypal_capture_id: captureId,
       held_balance_status: "SECURED",
     });
+
+    // Also mark the advance invoice as RELEASED / PAID
+    const existingInvoices = db.getInvoices(project.id);
+    const advanceInvoice = existingInvoices.find((i) => i.milestone_id === null || i.order_index === 0);
+    if (advanceInvoice) {
+      db.updateInvoice(advanceInvoice.id, { status: "RELEASED", paid_at: new Date().toISOString() });
+    }
 
     const payment = db.createPayment({
       id: `pay-adv-${Date.now()}`,
@@ -1109,6 +1148,61 @@ ${description || title}`,
     });
   }
 
+  // 19b. Payments: Milestone Release: /api/payments/milestones/release
+  if (path === "payments/milestones/release" || path === "payments/release-milestone") {
+    const { milestone_id, client_id, note } = body;
+    const m = db.getMilestoneById(milestone_id);
+    if (!m) return badRequest("Milestone not found", 404);
+
+    db.updateMilestone(milestone_id, { status: "PAID" });
+
+    // Update corresponding invoice to RELEASED
+    const invoices = db.getInvoices(m.project_id);
+    const inv = invoices.find((i) => i.milestone_id === milestone_id);
+    if (inv) {
+      db.updateInvoice(inv.id, { status: "RELEASED", paid_at: new Date().toISOString() });
+    }
+
+    const proj = db.getProjectById(m.project_id);
+    if (proj) {
+      const remainingHeld = Math.max(0, (proj.held_balance || 0) - m.amount);
+      db.updateProject(proj.id, {
+        held_balance: remainingHeld,
+        held_balance_status: remainingHeld === 0 ? "RELEASED" : "PARTIALLY_RELEASED",
+      });
+    }
+
+    const payoutBatchId = `PAYOUTS-SANDBOX-${Date.now()}`;
+    const payment = db.createPayment({
+      id: `pay-mile-${Date.now()}`,
+      project_id: m.project_id,
+      milestone_id,
+      payer_id: client_id || proj?.client_id || "client",
+      payment_type: "MILESTONE_ESCROW",
+      amount: m.amount,
+      currency: m.currency,
+      paypal_capture_id: payoutBatchId,
+      status: "CAPTURED",
+      created_at: new Date().toISOString(),
+    });
+
+    recordAuditEvent({
+      projectId: m.project_id,
+      action: "ESCROW_FUNDS_RELEASED",
+      actorId: client_id || proj?.client_id || "client",
+      actorRole: "client",
+      details: { milestone_id, amount: m.amount, payout_batch_id: payoutBatchId, note },
+    });
+
+    return json({
+      message: "Escrow funds released via PayPal Payouts v1",
+      payout_batch_id: payoutBatchId,
+      payment,
+      milestone: db.getMilestoneById(milestone_id),
+      project: proj ? db.getProjectById(proj.id) : undefined,
+    });
+  }
+
   // 20. Payments: Explain: /api/payments/explain
   if (path === "payments/explain") {
     return json(explainPayments(body.project_id, body.question));
@@ -1120,40 +1214,119 @@ ${description || title}`,
     const milestone = db.getMilestoneById(milestone_id);
     if (!milestone) return badRequest("Milestone not found", 404);
 
+    const initiatorUser = db.getUserById(initiated_by_id);
+    const initiatorName = initiatorUser?.name || "Counterparty";
+    const initiatorRole = initiatorUser?.role || "client";
+    const proj = db.getProjectById(milestone.project_id);
+
+    // 1. Update milestone to DISPUTED
     db.updateMilestone(milestone_id, { status: "DISPUTED" });
+
+    // 2. Freeze project and held balance status
+    if (proj) {
+      db.updateProject(proj.id, {
+        status: "DISPUTED",
+        held_balance_status: "DISPUTED",
+      });
+    }
+
+    // 3. Update corresponding invoice to DISPUTED
+    const invoices = db.getInvoices(milestone.project_id);
+    const matchedInvoice = invoices.find((i) => i.milestone_id === milestone_id);
+    if (matchedInvoice) {
+      db.updateInvoice(matchedInvoice.id, { status: "DISPUTED" });
+    }
+
+    // 4. Generate AI Arbiter Assessment & Dossier Summary
+    const aiAnalysis = `Autonomous AI Arbiter Analysis: Impartial deliverable inspection initiated for Milestone "${milestone.title}" ($${milestone.amount.toLocaleString()} USD). Formal Claim: "${reason}". Cryptographic audit indicates milestone criteria verification requires review. Associated escrow funds ($${milestone.amount.toLocaleString()} USD) frozen under PayPal Protection. Evidence dossier compiled for administrative compliance.`;
+
     const dispute = db.createDispute({
       id: `disp-${Date.now()}`,
       milestone_id,
+      project_id: milestone.project_id,
       initiated_by_id: initiated_by_id || "user-001",
       reason: reason || "Dispute initiated regarding deliverable specifications.",
       client_argument: client_argument || reason,
       freelancer_argument: freelancer_argument || "",
       ai_severity: "HIGH",
-      ai_recommendation: "AI Arbiter recommends verification inspection window. Funds frozen in escrow.",
+      ai_recommendation: aiAnalysis,
+      ai_dossier_summary: aiAnalysis,
+      is_escalated: true,
       status: "OPEN",
       created_at: new Date().toISOString(),
     });
+
+    // 5. Broadcast notice to Project Chat so both parties see it in real time
+    db.addChatMessage({
+      project_id: milestone.project_id,
+      author_id: initiated_by_id || "system",
+      author_name: initiatorName,
+      author_role: (initiatorRole as any) || "client",
+      message: `🚨 FORMAL DISPUTE FILED on Milestone: "${milestone.title}" ($${milestone.amount.toLocaleString()} USD)\n\nReason: "${reason}"\n\n⚖️ AI Arbiter: Escrow funds frozen under PayPal Buyer & Seller Protection. Evidence dossier compiled for compliance review.`,
+      comment_type: "DISPUTE_NOTICE",
+    });
+
+    // 6. Add to contract negotiation thread
+    if (proj?.contracts && proj.contracts.length > 0) {
+      db.addContractComment({
+        id: `cm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        contract_id: proj.contracts[proj.contracts.length - 1].id,
+        project_id: proj.id,
+        author_id: initiated_by_id || "system",
+        author_name: initiatorName,
+        author_role: (initiatorRole as any) || "client",
+        comment_type: "HOLD_NOTICE",
+        message: `🚨 MILESTONE ESCROW FROZEN: Milestone "${milestone.title}" is in formal dispute ("${reason}").`,
+        created_at: new Date().toISOString(),
+      });
+    }
 
     recordAuditEvent({
       projectId: milestone.project_id,
       action: "MILESTONE_DISPUTE_OPENED",
       actorId: initiated_by_id,
-      details: { milestone_id, reason },
+      details: { milestone_id, reason, ai_severity: "HIGH" },
     });
 
     return json(dispute, 201);
   }
 
-  // 22. Disputes: Resolve: /api/disputes/[id]/resolve
-  if (slug[0] === "disputes" && slug.length === 3 && slug[2] === "resolve") {
-    const disputeId = slug[1];
+  // 22. Disputes: Resolve: /api/disputes/[id]/resolve or /api/admin/disputes/[id]/resolve
+  if ((slug[0] === "disputes" && slug.length === 3 && slug[2] === "resolve") || (slug[0] === "admin" && slug[1] === "disputes" && slug.length === 4 && slug[3] === "resolve")) {
+    const disputeId = slug[0] === "admin" ? slug[2] : slug[1];
     const { decision, notes } = body;
     const updated = db.updateDispute(disputeId, {
       status: "RESOLVED",
       resolved_at: new Date().toISOString(),
       ai_recommendation: `Compliance resolution: ${decision}. ${notes || ""}`,
     });
-    return json(updated);
+
+    const dispute = db.getDisputes().find((d) => d.id === disputeId);
+    if (dispute) {
+      const milestone = db.getMilestoneById(dispute.milestone_id);
+      if (milestone) {
+        if (decision === "RELEASE_TO_FREELANCER") {
+          db.updateMilestone(milestone.id, { status: "PAID" });
+          const invoices = db.getInvoices(milestone.project_id);
+          const inv = invoices.find((i) => i.milestone_id === milestone.id);
+          if (inv) db.updateInvoice(inv.id, { status: "RELEASED", paid_at: new Date().toISOString() });
+        } else {
+          db.updateMilestone(milestone.id, { status: "PENDING" });
+        }
+        db.updateProject(milestone.project_id, { status: "IN_PROGRESS", held_balance_status: "SECURED" });
+
+        db.addChatMessage({
+          project_id: milestone.project_id,
+          author_id: "admin-arbiter",
+          author_name: "Compliance Administrator",
+          author_role: "admin",
+          message: `✅ DISPUTE RESOLVED: Milestone "${milestone.title}"\n\nRuling: ${decision}\nNotes: ${notes || "Resolution approved based on evidence dossier and test run artifacts."}`,
+          comment_type: "RESOLUTION",
+        });
+      }
+    }
+
+    return json(updated || { id: disputeId, status: "RESOLVED" });
   }
 
   // 23. Chat: /api/chat/[projectId] or /api/chat/[projectId]/messages

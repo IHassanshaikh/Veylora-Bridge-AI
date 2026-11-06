@@ -127,7 +127,7 @@ export interface Invoice {
   currency: string;
   order_index: number;
   due_date?: string;
-  status: "PENDING_DEPOSIT" | "HELD_IN_ESCROW" | "RELEASED" | "REFUNDED" | "FROZEN_IN_DISPUTE";
+  status: "PENDING_DEPOSIT" | "HELD_IN_ESCROW" | "RELEASED" | "REFUNDED" | "FROZEN_IN_DISPUTE" | "DISPUTED";
   paypal_order_id?: string;
   paypal_capture_id?: string;
   deposit_paid_at?: string;
@@ -496,6 +496,16 @@ export const api = {
     const res = await fetch(`${API_BASE}/disputes/milestone/${milestoneId}`);
     if (!res.ok) return null;
     return res.json();
+  },
+
+  async getDisputes(): Promise<any[]> {
+    try {
+      const res = await fetch(`${API_BASE}/disputes`, { headers: getHeaders() });
+      if (!res.ok) return [];
+      return res.json();
+    } catch {
+      return [];
+    }
   },
 
   // Timeline & Cryptographic Ledger

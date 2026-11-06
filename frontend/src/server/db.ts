@@ -177,6 +177,7 @@ export interface InvitationEntity {
 export interface DisputeEntity {
   id: string;
   milestone_id: string;
+  project_id?: string;
   initiated_by_id: string;
   status: "OPEN" | "AI_REVIEW" | "ESCALATED" | "RESOLVED";
   reason: string;
@@ -184,6 +185,8 @@ export interface DisputeEntity {
   freelancer_argument?: string;
   ai_severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   ai_recommendation?: string;
+  ai_dossier_summary?: string;
+  is_escalated?: boolean;
   created_at: string;
   resolved_at?: string;
 }

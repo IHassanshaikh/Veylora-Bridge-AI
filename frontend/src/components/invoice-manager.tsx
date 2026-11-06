@@ -43,7 +43,7 @@ export function InvoiceManager({
 
   useEffect(() => {
     loadInvoices();
-  }, [projectId]);
+  }, [projectId, project.budget, project.advance_amount, project.milestones?.length]);
 
   const loadInvoices = async () => {
     try {
@@ -329,7 +329,7 @@ export function InvoiceManager({
               const isPendingDeposit = inv.status === "PENDING_DEPOSIT";
               const isHeldInEscrow = inv.status === "HELD_IN_ESCROW";
               const isReleased = inv.status === "RELEASED";
-              const isDisputed = inv.status === "FROZEN_IN_DISPUTE";
+              const isDisputed = inv.status === "FROZEN_IN_DISPUTE" || inv.status === "DISPUTED";
               const isActing = actionLoadingId === inv.id;
               const displayTitle = formatDisplayTitle(inv.title, inv.order_index, isAdvance);
 
@@ -431,6 +431,14 @@ export function InvoiceManager({
                             </span>
                           )}
                         </>
+                      )}
+
+                      {/* DISPUTE STATUS (Both Client & Freelancer) */}
+                      {isDisputed && (
+                        <span className="px-3 py-1.5 rounded-xl bg-rose-100 text-rose-900 border border-rose-300 text-xs font-bold flex items-center gap-1.5">
+                          <AlertCircle className="h-3.5 w-3.5 text-rose-700" />
+                          <span>Escrow Frozen (Disputed)</span>
+                        </span>
                       )}
 
                       {/* Action 3: View Official Invoice (Available to All) */}

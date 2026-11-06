@@ -133,6 +133,23 @@ function ProjectRoomContent() {
       if (data) {
         const timeline = await api.getTimeline(data.id);
         setAuditEvents(timeline);
+
+        // Load disputes associated with this project or its milestones
+        try {
+          const disputes = await api.getDisputes();
+          const msIds = new Set(data.milestones?.map(m => m.id) || []);
+          const active = disputes?.find(
+            (d: any) => (msIds.has(d.milestone_id) || d.project_id === data.id) && d.status !== "RESOLVED"
+          ) || disputes?.find((d: any) => msIds.has(d.milestone_id) || d.project_id === data.id);
+          if (active) {
+            setActiveDispute(active);
+            if (active.milestone_id) setDisputeMilestoneId(active.milestone_id);
+          } else {
+            setActiveDispute(null);
+          }
+        } catch (err) {
+          console.warn("Dispute fetch failed:", err);
+        }
       }
     } catch (e) {
       console.error("Error loading project:", e);
@@ -329,6 +346,27 @@ function ProjectRoomContent() {
       await loadProject();
     } catch (err: any) {
       alert("Failed to submit dispute: " + (err.message || "Unknown error"));
+    } finally {
+      setDisputeSubmitting(false);
+    }
+  };
+
+  // Resolve Active Dispute
+  const handleResolveDispute = async (decision: "RELEASE_TO_FREELANCER" | "REFUND_TO_CLIENT") => {
+    if (!activeDispute) return;
+    try {
+      setDisputeSubmitting(true);
+      await api.resolveDispute(
+        activeDispute.id,
+        decision,
+        decision === "RELEASE_TO_FREELANCER"
+          ? "Resolution approved: Escrow released to contractor following AI verification."
+          : "Resolution approved: Milestone escrow refunded to client."
+      );
+      alert(`Dispute resolved with decision: ${decision}. Escrow updated.`);
+      await loadProject();
+    } catch (err: any) {
+      alert("Failed to resolve dispute: " + (err.message || "Unknown error"));
     } finally {
       setDisputeSubmitting(false);
     }
@@ -652,6 +690,66 @@ function ProjectRoomContent() {
         </div>
       )}
 
+      {/* GLOBAL HIGH-CONTRAST DISPUTE ALERT BANNER */}
+      {(project.milestones.some(m => m.status === "DISPUTED") || (activeDispute && activeDispute.status !== "RESOLVED") || project.status === "DISPUTED") && (
+        <div className="p-5 rounded-2xl bg-rose-50 border-2 border-rose-400 shadow-md space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                <Scale className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-rose-950 bg-rose-200/90 px-2 py-0.5 rounded">
+                    Escrow Dispute Active
+                  </span>
+                  <span className="text-xs font-bold text-rose-900">
+                    PayPal Escrow Frozen • Impartial AI Arbitration
+                  </span>
+                </div>
+                <h3 className="text-sm font-black text-rose-950 mt-0.5">
+                  Milestone Escrow Frozen: {activeDispute?.reason || "Deliverable under dispute mediation"}
+                </h3>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => switchTab("disputes")}
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs transition-colors shadow-xs cursor-pointer"
+              >
+                <Scale className="h-4 w-4" />
+                <span>View AI Arbiter Dossier</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => switchTab("chat")}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-white hover:bg-slate-50 text-rose-950 border border-rose-300 font-extrabold text-xs transition-colors shadow-2xs cursor-pointer"
+              >
+                <MessageSquare className="h-4 w-4 text-rose-700" />
+                <span>Open Dispute Chat</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-white border border-rose-200 text-xs text-slate-800 space-y-1.5 shadow-2xs">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="font-black text-rose-900 uppercase tracking-wide bg-rose-100 px-2 py-0.5 rounded">
+                AI Arbiter Finding &amp; Evidence
+              </span>
+              <span className="font-bold text-slate-500">
+                Escalated to Compliance • PayPal Buyer &amp; Seller Protection Active
+              </span>
+            </div>
+            <div className="font-medium text-slate-900 text-xs leading-relaxed">
+              {activeDispute?.ai_dossier_summary || activeDispute?.ai_recommendation || "Deliverable under formal dispute mediation. Milestone escrow funds are frozen in escrow. Autonomous AI Arbiter has analyzed code deliverables, acceptance criteria, and interaction history."}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tab Navigation Bar (Sleek Edge-to-Edge Segmented Control Bar) */}
       <div className="w-full bg-slate-100/90 p-1.5 rounded-2xl border border-slate-200/80 shadow-2xs overflow-x-auto scrollbar-none">
         <div className="flex items-center gap-1 min-w-max xl:min-w-0 xl:w-full pr-4 xl:pr-0">
@@ -659,6 +757,7 @@ function ProjectRoomContent() {
             const Icon = t.icon;
             const isActive = activeTab === t.id;
             const hasHoldBadge = (t.id === "contract" || t.id === "chat") && (latestContract?.is_on_hold || latestContract?.status === "ON_HOLD");
+            const hasDisputeBadge = (t.id === "disputes" || t.id === "chat" || t.id === "payments" || t.id === "milestones") && (project.milestones.some(m => m.status === "DISPUTED") || (activeDispute && activeDispute.status !== "RESOLVED") || project.status === "DISPUTED");
             return (
               <button
                 key={t.id}
@@ -672,6 +771,9 @@ function ProjectRoomContent() {
                 <span>{t.label}</span>
                 {hasHoldBadge && (
                   <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse ml-0.5" title="Hold notice active" />
+                )}
+                {hasDisputeBadge && (
+                  <span className="h-2 w-2 rounded-full bg-rose-600 animate-pulse ml-0.5" title="Dispute notice active" />
                 )}
               </button>
             );
@@ -1369,6 +1471,19 @@ function ProjectRoomContent() {
                       <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-800 border border-slate-200">
                         DISBURSED
                       </span>
+                    ) : m.status === "DISPUTED" ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-rose-100 text-rose-800 border border-rose-300">
+                          ESCROW FROZEN (DISPUTED)
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => switchTab("disputes")}
+                          className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs transition-colors cursor-pointer"
+                        >
+                          View Dispute
+                        </button>
+                      </div>
                     ) : role === "client" ? (
                       <button
                         type="button"
@@ -1459,24 +1574,94 @@ function ProjectRoomContent() {
             </div>
 
             {/* Check if any milestone is currently disputed */}
-            {project.milestones.some(m => m.status === "DISPUTED") || activeDispute ? (
-              <div className="p-4 rounded-lg bg-rose-50 border border-rose-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="h-4 w-4 text-rose-700" />
-                    <span className="font-bold text-xs text-rose-900">
-                      Dispute Department Escalation Active
-                    </span>
+            {(project.milestones.some(m => m.status === "DISPUTED") || (activeDispute && activeDispute.status !== "RESOLVED")) ? (
+              <div className="p-5 rounded-xl bg-rose-50 border-2 border-rose-300 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-rose-200">
+                  <div className="flex items-center gap-2.5">
+                    <AlertCircle className="h-5 w-5 text-rose-700 shrink-0" />
+                    <div>
+                      <span className="font-black text-sm text-rose-950">
+                        Dispute Department Escalation Active
+                      </span>
+                      <p className="text-[11px] text-rose-800">
+                        Formal arbitration in progress • Associated escrow funds frozen
+                      </p>
+                    </div>
                   </div>
-                  <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase bg-rose-100 text-rose-800 border border-rose-300">
+                  <span className="text-[11px] font-black px-3 py-1 rounded-full uppercase bg-rose-100 text-rose-900 border border-rose-300 self-start sm:self-auto">
                     Severity: {activeDispute?.ai_severity || "HIGH"} • ESCROW FROZEN
                   </span>
                 </div>
-                <p className="text-xs text-rose-800 leading-relaxed">
-                  {activeDispute?.ai_dossier_summary || "This dispute was escalated to the Dispute Department (Admin Compliance) for administrative arbitration. Associated milestone escrow funds are frozen until compliance review is completed."}
-                </p>
-                <div className="text-[11px] text-slate-600 bg-white/80 p-2.5 rounded border border-rose-100">
-                  <strong>Current Status:</strong> Awaiting Administrator Ruling in Dispute Department. Impartial evidence dossier generated from contract clauses, negotiation comments, and Playwright verification tests.
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="p-3 bg-white rounded-lg border border-rose-200">
+                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Disputed Deliverable</span>
+                    <div className="font-bold text-slate-900 mt-0.5">
+                      {project.milestones.find(m => m.id === activeDispute?.milestone_id || m.status === "DISPUTED")?.title || "Active Milestone Deliverable"}
+                    </div>
+                    <div className="text-xs text-rose-700 font-extrabold mt-0.5">
+                      ${project.milestones.find(m => m.id === activeDispute?.milestone_id || m.status === "DISPUTED")?.amount || project.budget} USD (Locked in Escrow)
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-white rounded-lg border border-rose-200">
+                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Primary Claim &amp; Reason</span>
+                    <div className="font-bold text-slate-900 mt-0.5">
+                      {activeDispute?.reason || "Deliverable non-compliance relative to agreed criteria"}
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">
+                      Dispute Case ID: {activeDispute?.id || "DISP-ACTIVE"}
+                    </div>
+                  </div>
+                </div>
+
+                {/* AI Arbiter Assessment Dossier */}
+                <div className="p-4 rounded-xl bg-white border border-rose-200 space-y-2 text-xs">
+                  <div className="flex items-center gap-2 text-rose-950 font-black">
+                    <Scale className="h-4 w-4 text-rose-700" />
+                    <span>Autonomous AI Arbiter Analysis &amp; Findings:</span>
+                  </div>
+                  <p className="text-slate-800 leading-relaxed font-medium">
+                    {activeDispute?.ai_dossier_summary || activeDispute?.ai_recommendation || "Autonomous AI Arbiter has performed code inspection, contract baseline review, and interaction analysis. Impartial assessment prepared for mutual settlement or compliance certification."}
+                  </p>
+                </div>
+
+                {/* Mutual Settlement & Compliance Actions */}
+                <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <span className="text-[11px] text-slate-600 font-medium">
+                    Parties or compliance administrators can resolve this dispute and unfreeze escrow:
+                  </span>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => handleResolveDispute("RELEASE_TO_FREELANCER")}
+                      disabled={disputeSubmitting}
+                      className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      <span>Release Escrow to Contractor</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleResolveDispute("REFUND_TO_CLIENT")}
+                      disabled={disputeSubmitting}
+                      className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      <span>Refund to Client Escrow</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => switchTab("chat")}
+                      className="px-3.5 py-2 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <MessageSquare className="h-3.5 w-3.5 text-slate-600" />
+                      <span>Dispute Chat</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (
