@@ -272,22 +272,20 @@ export function ContractEditorModal({
                 <button
                   type="button"
                   onClick={() => setMode("edit")}
-                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
-                    mode === "edit"
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${mode === "edit"
                       ? "bg-white text-slate-900 shadow-xs"
                       : "text-slate-600 hover:text-slate-900"
-                  }`}
+                    }`}
                 >
                   Edit Markdown
                 </button>
                 <button
                   type="button"
                   onClick={() => setMode("preview")}
-                  className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer ${
-                    mode === "preview"
+                  className={`px-2.5 py-1 rounded text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer ${mode === "preview"
                       ? "bg-white text-[#0070ba] font-semibold shadow-xs"
                       : "text-slate-600 hover:text-slate-900"
-                  }`}
+                    }`}
                 >
                   <Eye className="h-3 w-3" />
                   <span>Formatted Preview</span>

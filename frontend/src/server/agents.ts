@@ -12,8 +12,8 @@ export function recordAuditEvent(params: {
   details?: any;
 }) {
   const existingEvents = db.getAuditEvents(params.projectId);
-  const prevHash = existingEvents.length > 0 
-    ? existingEvents[0].block_hash 
+  const prevHash = existingEvents.length > 0
+    ? existingEvents[0].block_hash
     : "0000000000000000000000000000000000000000000000000000000000000000";
 
   const blockPayload = `${prevHash}|${params.projectId}|${params.action}|${JSON.stringify(params.details || {})}|${Date.now()}`;
@@ -419,8 +419,8 @@ export async function runVerificationSuite(milestoneId: string) {
       id: `res-${Date.now()}-${idx}`,
       criterion_id: c.id,
       outcome: outcome,
-      details: shouldFail 
-        ? "Assertion failed: Checkout API returned HTTP 500 Internal Error during simulated transaction." 
+      details: shouldFail
+        ? "Assertion failed: Checkout API returned HTTP 500 Internal Error during simulated transaction."
         : `Assertion verified: ${c.title} passed all headless browser checks.`,
       execution_time_ms: Math.floor(Math.random() * 120) + 40,
       evidence: {
@@ -661,26 +661,26 @@ export function generateContractArchitect(params: {
 
     const criteria: AcceptanceCriterionEntity[] = isFirst
       ? [
-          {
-            id: `crit-${projectId}-${idx + 1}-1`,
-            milestone_id: mId,
-            title: "Health Check Response",
-            description: "Target staging URL responds with HTTP 200 within 3000ms.",
-            verification_type: "HTTP_STATUS" as const,
-            test_config_json: { expected_status: 200 },
-            status: "PENDING" as const,
-          },
-          {
-            id: `crit-${projectId}-${idx + 1}-2`,
-            milestone_id: mId,
-            title: "Security Baseline Verification",
-            description: "Codebase repository verified with zero critical dependency vulnerabilities.",
-            verification_type: "CODE_INSPECTION" as const,
-            status: "PENDING" as const,
-          },
-        ]
+        {
+          id: `crit-${projectId}-${idx + 1}-1`,
+          milestone_id: mId,
+          title: "Health Check Response",
+          description: "Target staging URL responds with HTTP 200 within 3000ms.",
+          verification_type: "HTTP_STATUS" as const,
+          test_config_json: { expected_status: 200 },
+          status: "PENDING" as const,
+        },
+        {
+          id: `crit-${projectId}-${idx + 1}-2`,
+          milestone_id: mId,
+          title: "Security Baseline Verification",
+          description: "Codebase repository verified with zero critical dependency vulnerabilities.",
+          verification_type: "CODE_INSPECTION" as const,
+          status: "PENDING" as const,
+        },
+      ]
       : isLast
-      ? [
+        ? [
           {
             id: `crit-${projectId}-${idx + 1}-1`,
             milestone_id: mId,
@@ -698,7 +698,7 @@ export function generateContractArchitect(params: {
             status: "PENDING" as const,
           },
         ]
-      : [
+        : [
           {
             id: `crit-${projectId}-${idx + 1}-1`,
             milestone_id: mId,

@@ -1,6 +1,19 @@
 // TrustBridge AI - Typed Frontend API Client
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
+function getSafeApiBase(): string {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (!envUrl || envUrl === "" || envUrl === "/api") return "/api";
+  if (envUrl.includes("backend-peach") || envUrl.includes("veylora-backend")) {
+    return "/api";
+  }
+  if (envUrl.startsWith("/")) return envUrl;
+  if (!envUrl.startsWith("http://") && !envUrl.startsWith("https://")) {
+    return `https://${envUrl}`;
+  }
+  return envUrl;
+}
+
+const API_BASE = getSafeApiBase();
 
 export interface User {
   id: string;

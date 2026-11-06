@@ -70,7 +70,7 @@ export default function NewProjectPage() {
 
   // Synchronize shareable invitation URL
   useEffect(() => {
-    const token = invitationData?.token || createdProject?.invitation_token;
+    const token = invitationData?.token || createdProject?.invitation_token || createdProject?.id;
     const path = invitationData?.invite_url || (token ? `/invite/${token}` : "");
     if (path && typeof window !== "undefined") {
       const full = path.startsWith("http") ? path : `${window.location.origin}${path}`;
@@ -380,7 +380,7 @@ export default function NewProjectPage() {
               </div>
               <div className="p-3 rounded-xl bg-slate-950 font-mono text-xs text-blue-200 flex items-center justify-between gap-3 overflow-x-auto border border-slate-800">
                 <span className="truncate select-all text-xs text-white font-semibold tracking-wide">
-                  {inviteFullUrl || (invitationData?.token ? `${typeof window !== "undefined" ? window.location.origin : ""}/invite/${invitationData.token}` : "Generating link...")}
+                  {inviteFullUrl || (createdProject ? `${typeof window !== "undefined" ? window.location.origin : ""}/invite/${createdProject.invitation_token || createdProject.id}` : "Generating link...")}
                 </span>
                 <button
                   type="button"

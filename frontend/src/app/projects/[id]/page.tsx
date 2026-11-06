@@ -664,8 +664,8 @@ function ProjectRoomContent() {
                 key={t.id}
                 onClick={() => switchTab(t.id as WorkspaceTab)}
                 className={`flex-1 shrink-0 xl:shrink xl:min-w-0 flex items-center justify-center gap-1.5 px-3 xl:px-2.5 py-2 rounded-xl font-bold text-xs whitespace-nowrap transition-all cursor-pointer relative ${isActive
-                    ? "bg-white text-slate-950 shadow-xs border border-slate-200/80"
-                    : "text-slate-600 hover:text-slate-950 hover:bg-white/50"
+                  ? "bg-white text-slate-950 shadow-xs border border-slate-200/80"
+                  : "text-slate-600 hover:text-slate-950 hover:bg-white/50"
                   }`}
               >
                 <Icon className={`h-3.5 w-3.5 shrink-0 ${isActive ? "text-slate-900" : "text-slate-400"}`} />
@@ -725,12 +725,12 @@ function ProjectRoomContent() {
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-semibold text-slate-500">Stage {idx + 1}</span>
                       <span className={`text-xs px-2 py-0.5 rounded font-medium ${m.status === "PAID"
-                          ? "bg-slate-100 text-slate-800 border border-slate-300"
-                          : m.status === "VERIFIED"
-                            ? "bg-blue-50 text-blue-800 border border-blue-200"
-                            : m.status === "DISPUTED"
-                              ? "bg-rose-50 text-rose-800 border border-rose-200"
-                              : "bg-slate-100 text-slate-700 border border-slate-200"
+                        ? "bg-slate-100 text-slate-800 border border-slate-300"
+                        : m.status === "VERIFIED"
+                          ? "bg-blue-50 text-blue-800 border border-blue-200"
+                          : m.status === "DISPUTED"
+                            ? "bg-rose-50 text-rose-800 border border-rose-200"
+                            : "bg-slate-100 text-slate-700 border border-slate-200"
                         }`}>
                         {m.status}
                       </span>
@@ -904,8 +904,8 @@ function ProjectRoomContent() {
                         Stage {idx + 1}
                       </span>
                       <span className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full flex items-center gap-1.5 ${isPaid ? "bg-emerald-50 text-emerald-800 border border-emerald-200" :
-                          isVerified ? "bg-blue-50 text-blue-800 border border-blue-200" :
-                            isSubmitted ? "bg-amber-50 text-amber-800 border border-amber-200" : "bg-slate-100 text-slate-700"
+                        isVerified ? "bg-blue-50 text-blue-800 border border-blue-200" :
+                          isSubmitted ? "bg-amber-50 text-amber-800 border border-amber-200" : "bg-slate-100 text-slate-700"
                         }`}>
                         <span className={`h-1.5 w-1.5 rounded-full ${isPaid ? "bg-emerald-500" : isVerified ? "bg-[#0070ba]" : isSubmitted ? "bg-amber-500" : "bg-slate-400"
                           }`} />
@@ -1168,8 +1168,8 @@ function ProjectRoomContent() {
             <div className="space-y-4">
               {/* AI Synthesis Summary Card */}
               <div className={`payflow-card p-6 border ${verificationRun.failed_count === 0
-                  ? "bg-emerald-50/40 border-emerald-200"
-                  : "bg-rose-50/40 border-rose-200"
+                ? "bg-emerald-50/40 border-emerald-200"
+                : "bg-rose-50/40 border-rose-200"
                 }`}>
                 <div className="flex items-center justify-between pb-3 border-b border-slate-200/60 mb-3">
                   <div className="flex items-center gap-2">
@@ -1241,8 +1241,8 @@ function ProjectRoomContent() {
                 </div>
               </div>
               <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full ${project.advance_status === "PAID"
-                  ? "bg-emerald-100 text-emerald-800"
-                  : "bg-amber-100 text-amber-800"
+                ? "bg-emerald-100 text-emerald-800"
+                : "bg-amber-100 text-amber-800"
                 }`}>
                 {project.advance_status}
               </span>
@@ -1635,8 +1635,8 @@ function ProjectRoomContent() {
           type="button"
           onClick={() => switchTab(activeTab === "chat" ? "overview" : "chat")}
           className={`px-4 py-2.5 rounded-full shadow-md flex items-center gap-2 font-bold text-xs transition-all cursor-pointer ${activeTab === "chat"
-              ? "bg-slate-900 text-white border border-slate-700"
-              : "bg-slate-900 text-white hover:bg-slate-800 border border-slate-800"
+            ? "bg-slate-900 text-white border border-slate-700"
+            : "bg-slate-900 text-white hover:bg-slate-800 border border-slate-800"
             }`}
         >
           <MessageSquare className="h-4 w-4" />

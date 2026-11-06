@@ -168,6 +168,7 @@ export interface InvitationEntity {
   role: "client" | "freelancer";
   token: string;
   status: "PENDING" | "ACCEPTED" | "EXPIRED";
+  delivery_status?: string;
   expires_at: string;
   accepted_at?: string;
   created_at: string;
@@ -661,7 +662,32 @@ Escrow funds shall be released upon automated test verification via the Playwrig
     verificationRuns: [],
     payments: [],
     auditEvents,
-    invitations: [],
+    invitations: [
+      {
+        id: "inv-seed-demo-1",
+        token: "invite-demo-token-99",
+        project_id: "proj-001",
+        inviter_id: "user-contractor-1",
+        invitee_email: "alex@acmestudio.io",
+        role: "client",
+        status: "PENDING",
+        delivery_status: "READY_TO_SHARE",
+        created_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 30 * 86400000).toISOString(),
+      },
+      {
+        id: "inv-seed-demo-2",
+        token: "invite-ecom-token-88",
+        project_id: "proj-002",
+        inviter_id: "user-contractor-1",
+        invitee_email: "sarah@fashionhub.com",
+        role: "client",
+        status: "PENDING",
+        delivery_status: "READY_TO_SHARE",
+        created_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 30 * 86400000).toISOString(),
+      },
+    ],
     disputes: [],
     invoices,
     chatMessages,
