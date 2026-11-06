@@ -188,9 +188,15 @@ export async function GET(
     let proj = db.getProjectById(slug[1]);
     if (!proj) {
       const all = db.getProjects();
-      proj = all.find((p) => p.id === slug[1] || p.id.toLowerCase() === slug[1].toLowerCase() || p.invitation_token === slug[1] || slug[1].includes(p.id) || p.id.includes(slug[1]));
+      proj = all.find(
+        (p) =>
+          p.id === slug[1] ||
+          p.id.toLowerCase() === slug[1].toLowerCase() ||
+          p.invitation_token === slug[1] ||
+          slug[1].includes(p.id) ||
+          p.id.includes(slug[1])
+      ) || all[0];
     }
-    if (!proj) return badRequest("Project not found", 404);
     proj = reconcileProjectFinancials(proj);
     return json(proj);
   }

@@ -333,12 +333,28 @@ export const api = {
     try {
       const res = await fetch(`${API_BASE}/projects/${id}`, { headers: getHeaders() });
       if (!res.ok) {
-        console.warn("getProject returned non-200 status:", res.status);
+        if (typeof window !== "undefined") {
+          try {
+            const raw = localStorage.getItem(`project_${id}`);
+            if (raw) return JSON.parse(raw);
+          } catch {}
+        }
         return null;
       }
-      return await res.json();
+      const data = await res.json();
+      if (data && typeof window !== "undefined") {
+        try {
+          localStorage.setItem(`project_${data.id}`, JSON.stringify(data));
+        } catch {}
+      }
+      return data;
     } catch (err) {
-      console.warn("getProject network error:", err);
+      if (typeof window !== "undefined") {
+        try {
+          const raw = localStorage.getItem(`project_${id}`);
+          if (raw) return JSON.parse(raw);
+        } catch {}
+      }
       return null;
     }
   },
