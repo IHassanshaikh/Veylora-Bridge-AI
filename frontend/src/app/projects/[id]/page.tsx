@@ -90,6 +90,8 @@ function ProjectRoomContent() {
   const [disputeFreelancerArg, setDisputeFreelancerArg] = useState("");
   const [disputeSubmitting, setDisputeSubmitting] = useState(false);
   const [activeDispute, setActiveDispute] = useState<any | null>(null);
+  const [lastResolvedDispute, setLastResolvedDispute] = useState<any | null>(null);
+  const [disputeNotification, setDisputeNotification] = useState<string | null>(null);
   const [scopeMessage, setScopeMessage] = useState("We also want a native iOS mobile app built with push notifications!");
   const [analyzingScope, setAnalyzingScope] = useState(false);
   const [scopeChangeReport, setScopeChangeReport] = useState<any | null>(null);
@@ -114,11 +116,15 @@ function ProjectRoomContent() {
   useEffect(() => {
     loadProject();
     loadDemoStatus();
+    const interval = setInterval(() => {
+      loadProject(true);
+    }, 3500);
+    return () => clearInterval(interval);
   }, [projectId, role]);
 
-  const loadProject = async () => {
+  const loadProject = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       let data = await api.getProject(projectId);
       if (!data) {
         const all = await api.getProjects();
@@ -140,12 +146,18 @@ function ProjectRoomContent() {
           const msIds = new Set(data.milestones?.map(m => m.id) || []);
           const active = disputes?.find(
             (d: any) => (msIds.has(d.milestone_id) || d.project_id === data.id) && d.status !== "RESOLVED"
-          ) || disputes?.find((d: any) => msIds.has(d.milestone_id) || d.project_id === data.id);
+          );
+          const resolved = disputes?.find(
+            (d: any) => (msIds.has(d.milestone_id) || d.project_id === data.id) && d.status === "RESOLVED"
+          );
           if (active) {
             setActiveDispute(active);
             if (active.milestone_id) setDisputeMilestoneId(active.milestone_id);
           } else {
             setActiveDispute(null);
+          }
+          if (resolved) {
+            setLastResolvedDispute(resolved);
           }
         } catch (err) {
           console.warn("Dispute fetch failed:", err);
@@ -154,7 +166,7 @@ function ProjectRoomContent() {
     } catch (e) {
       console.error("Error loading project:", e);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -363,8 +375,9 @@ function ProjectRoomContent() {
           ? "Resolution approved: Escrow released to contractor following AI verification."
           : "Resolution approved: Milestone escrow refunded to client."
       );
-      alert(`Dispute resolved with decision: ${decision}. Escrow updated.`);
+      setDisputeNotification(`Dispute successfully resolved with decision: ${decision}. Escrow funds un-frozen and synchronized across platforms.`);
       await loadProject();
+      setTimeout(() => setDisputeNotification(null), 6000);
     } catch (err: any) {
       alert("Failed to resolve dispute: " + (err.message || "Unknown error"));
     } finally {
@@ -416,12 +429,8 @@ function ProjectRoomContent() {
     ?.filter(m => m.status === "PAID")
     .reduce((s, m) => s + m.amount, 0) || 0;
 
-  const isLegacyFiveThousand =
-    project.budget === 5000 &&
-    project.advance_amount === 1250 &&
-    !latestContract?.content_markdown?.includes("REVISED CLAUSE AMENDMENT");
-  const displayAdvance = isLegacyFiveThousand ? 1000 : project.advance_amount;
-  const displayHeld = isLegacyFiveThousand ? 4000 : project.held_balance;
+  const displayAdvance = project.advance_amount;
+  const displayHeld = project.held_balance;
 
   const tabs = [
     { id: "overview", label: "Overview", icon: Layers },
@@ -1573,6 +1582,13 @@ function ProjectRoomContent() {
               </div>
             </div>
 
+            {disputeNotification && (
+              <div className="p-4 rounded-xl bg-emerald-50 border-2 border-emerald-400 text-emerald-950 text-xs font-bold flex items-center gap-2.5 shadow-2xs">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                <span>{disputeNotification}</span>
+              </div>
+            )}
+
             {/* Check if any milestone is currently disputed */}
             {(project.milestones.some(m => m.status === "DISPUTED") || (activeDispute && activeDispute.status !== "RESOLVED")) ? (
               <div className="p-5 rounded-xl bg-rose-50 border-2 border-rose-300 space-y-4">
@@ -1665,7 +1681,37 @@ function ProjectRoomContent() {
                 </div>
               </div>
             ) : (
-              <form onSubmit={handleFileDispute} className="space-y-3 pt-1">
+              <div className="space-y-4">
+                {lastResolvedDispute && (
+                  <div className="p-5 rounded-xl bg-emerald-50/80 border-2 border-emerald-300 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-emerald-200">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="h-5 w-5 text-emerald-700 shrink-0" />
+                        <div>
+                          <span className="font-black text-sm text-emerald-950">
+                            Dispute Resolved &amp; Escrow Unfrozen
+                          </span>
+                          <span className="text-[11px] text-emerald-800 ml-2">
+                            Case {lastResolvedDispute.id} • Mutual Compliance Ruling Certified
+                          </span>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-emerald-200 text-emerald-900 self-start sm:self-auto">
+                        Status: RESOLVED
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-slate-800 font-medium">
+                      <strong>AI Arbiter Finding &amp; Decision:</strong> {lastResolvedDispute.ai_recommendation || "Dispute concluded and milestone funds disbursed per mutual agreement."}
+                    </div>
+
+                    <div className="text-[11px] text-slate-600">
+                      Resolved: {lastResolvedDispute.resolved_at ? new Date(lastResolvedDispute.resolved_at).toLocaleString() : "Recently"}
+                    </div>
+                  </div>
+                )}
+
+                <form onSubmit={handleFileDispute} className="space-y-3 pt-1">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">Select Milestone to Dispute:</label>
@@ -1729,7 +1775,8 @@ function ProjectRoomContent() {
                   </button>
                 </div>
               </form>
-            )}
+            </div>
+          )}
           </div>
         </div>
       )}

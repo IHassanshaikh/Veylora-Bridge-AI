@@ -1307,22 +1307,34 @@ ${description || title}`,
     if (dispute) {
       const milestone = db.getMilestoneById(dispute.milestone_id);
       if (milestone) {
+        const proj = db.getProjectById(milestone.project_id);
+        const currentHeld = proj ? (proj.held_balance || 0) : 0;
+        let newHeld = currentHeld;
         if (decision === "RELEASE_TO_FREELANCER") {
+          newHeld = Math.max(0, currentHeld - milestone.amount);
           db.updateMilestone(milestone.id, { status: "PAID" });
           const invoices = db.getInvoices(milestone.project_id);
           const inv = invoices.find((i) => i.milestone_id === milestone.id);
           if (inv) db.updateInvoice(inv.id, { status: "RELEASED", paid_at: new Date().toISOString() });
         } else {
+          newHeld = Math.max(0, currentHeld - milestone.amount);
           db.updateMilestone(milestone.id, { status: "PENDING" });
+          const invoices = db.getInvoices(milestone.project_id);
+          const inv = invoices.find((i) => i.milestone_id === milestone.id);
+          if (inv) db.updateInvoice(inv.id, { status: "PENDING_DEPOSIT" });
         }
-        db.updateProject(milestone.project_id, { status: "IN_PROGRESS", held_balance_status: "SECURED" });
+        db.updateProject(milestone.project_id, {
+          status: "IN_PROGRESS",
+          held_balance: newHeld,
+          held_balance_status: newHeld > 0 ? "SECURED" : "RELEASED"
+        });
 
         db.addChatMessage({
           project_id: milestone.project_id,
           author_id: "admin-arbiter",
           author_name: "Compliance Administrator",
           author_role: "admin",
-          message: `✅ DISPUTE RESOLVED: Milestone "${milestone.title}"\n\nRuling: ${decision}\nNotes: ${notes || "Resolution approved based on evidence dossier and test run artifacts."}`,
+          message: `✅ DISPUTE RESOLVED: Milestone "${milestone.title}" ($${milestone.amount.toLocaleString()} USD)\n\nRuling: ${decision}\nNotes: ${notes || "Resolution approved based on evidence dossier and test run artifacts."}`,
           comment_type: "RESOLUTION",
         });
       }

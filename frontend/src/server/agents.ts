@@ -232,7 +232,13 @@ export function aiEditContract(contractId: string, instruction: string) {
     ? `- **Adjusted Delivery Timeline:** Extended by +${addedDays} calendar days (New Target: ${newTimelineDays} calendar days)\n- **Timeline Rationale:** Extended per counterparty review to accommodate verified testing, staging deployment, and QA validation.\n`
     : "";
 
-  const revisedMarkdown = `${contract.content_markdown}
+  let baseMarkdown = contract.content_markdown || "";
+  baseMarkdown = baseMarkdown
+    .replace(/\*\*Agreed Budget:\*\* \$[\d,]+ USD/g, `**Agreed Budget:** $${newBudget.toLocaleString()} USD`)
+    .replace(/\*\*Kickoff Advance(?:\s*\(\d+%\))?:\*\* \$[\d,]+ USD/g, `**Kickoff Advance (${Math.round(advanceRatio * 100)}%):** $${newAdvance.toLocaleString()} USD`)
+    .replace(/\*\*Secured Escrow(?:\s*\(\d+%\))?:\*\* \$[\d,]+ USD/g, `**Secured Escrow (${100 - Math.round(advanceRatio * 100)}%):** $${newHeld.toLocaleString()} USD`);
+
+  const revisedMarkdown = `${baseMarkdown}
 
 ---
 ### REVISED CLAUSE AMENDMENT (Version ${newVersion})
@@ -269,7 +275,16 @@ ${timelineClause}- **Adjusted Total Budget:** $${newBudget.toLocaleString()} USD
       }));
     }
 
+    let updatedDescription = project.description || "";
+    if (updatedDescription) {
+      updatedDescription = updatedDescription
+        .replace(/\$5,?000/g, `$${newBudget.toLocaleString()}`)
+        .replace(/\$1,?000/g, `$${newAdvance.toLocaleString()}`)
+        .replace(/\$4,?000/g, `$${newHeld.toLocaleString()}`);
+    }
+
     db.updateProject(project.id, {
+      description: updatedDescription,
       budget: newBudget,
       advance_amount: newAdvance,
       held_balance: newHeld,
